@@ -2,28 +2,50 @@
 # -*- coding: utf-8 -*-
 import sys
 import contextlib
-import Graph
-import LayoutAlgorithm
+import Digraph
+import CompoundDigraph
+import CompoundGraphDrawer
+
+
+class IndexedVertex(Digraph.Vertex):
+    def __init__(self, index):
+        #super(IndexedVertex, self).__init__()
+        self.__index = index
+
+    def get_index(self):
+        return self.__index
+
+    def __hash__(self):
+        return self.__index
+
+    index = property(get_index)
 
 
 def read_graph(filename):
+    graph = CompoundDigraph.CompoundDiraph()
     f = open(filename)
-    vertex_count = int(f.getline())
-    graph = Graph.CompoundDigraph(vertex_count)
+
+    vertex_count = int(f.readline())
+
+    for i in range(vertex_count):
+        graph.add_vertex(IndexedVertex(i))
+
     for line in f:
-        row = line.rstrip("\n").split()
+        row = tuple(map(int, line.rstrip("\n").split()))
+        edge = Digraph.Edge(IndexedVertex(row[0]), IndexedVertex(row[1]))
         if row[2] == 0:
-            graph.edges.add_edge(row[0], row[1])
+            graph.add_adj_edge(row[0], row[1], edge)
         elif row[2] == 1:
-            graph.inc_edges.add_edge(row[0], row[1])
+            graph.add_inc_edge(row[0], row[1], edge)
     return graph
+
 
 def main(argv=None):
     if argv is None:
         argv = sys.argv
 
-    graph = read_graph(Graph.CompoundDigraph(vertex_count))
-    LayoutAlgorithm.lay_out(graph)
+    graph = read_graph("resource/graph.txt")
+    CompoundGraphDrawer.CompoundGraphDrawer().draw(graph)
 
     return 0
 
