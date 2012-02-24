@@ -1,44 +1,26 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import Digraph
+import CompoundDigraph
+
+
+class Relation:
+    LT = 0
+    LE = 1
 
 
 class RelationEdge(Digraph.Edge):
-    def __init__(self, x, y, lt=False, le=False, gt=False, ge=False):
-        super(RelationEdge, self).__init__(x, y)
-        self.__lt = lt
-        self.__le = le
-        self.__gt = gt
-        self.__ge = ge
+    def __init__(self, relation):
+        super(RelationEdge, self).__init__()
+        self.__relation = relation
 
-    def get_ge(self):
-        return self.__ge
-    
-    def set_ge(self, value):
-        self.__ge = value
+    def update(self, relation):
+        self.__relation = max(self.__relation, relation)
 
-    def get_gt(self):
-        return self.__gt
+    def get_relation(self):
+        return self.__relation
 
-    def set_gt(self, value):
-        self.__gt = value
-
-    def get_le(self):
-        return self.__le
-
-    def set_le(self, value):
-        self.__le = value
-
-    def get_lt(self):
-        return self.__lt
-
-    def set_lt(self, value):
-        self.__lt = value
-
-    ge = property(get_ge, set_ge)
-    gt = property(get_gt, set_gt)
-    le = property(get_le, set_le)
-    lt = property(get_lt, set_lt)
+    relation = property(get_relation)
 
 
 class InclusionVertex(Digraph.Vertex):
@@ -64,20 +46,53 @@ class CompoundLayer(list):
 
 class CompoundGraphDrawer(object):
     def __init__(self):
-        self.__compound_layers = []
+        self.__graph = CompoundDigraph.CompoundDiraph()
+        self.__inverted_graph = self.__graph.copy_inverted()_
         self.__relation_graph = Digraph.Digraph()
 
-    def __topological_sort(self, graph):
+    def __reset_vertex_flags(self, graph):
+        for vertex in graph.vertices:
+            vertex.flag = False
+
+    def __get_same_level_vertex(self, src, dst):
+
+
+    def __create_relation_graph(self, graph):
+        self.__relation_graph = Digraph.Digraph()
+        for i, vertex in enumerate(graph.vertices):
+            self.__relation_graph.vertices.add_vertex(Digraph.MutableIndexedVertex(i))
+
+    def __derive_relations_recursively(self, vertex):
+        for adj_vertex, adj_edge in self.__graph.get_adj_edges(vertex):
+            same_level_vertex = self.__get_same_level_vertex(vertex, adj_vertex)
+            self.__relation_graph.add_edge(vertex, same_level_vertex, RelationEdge(Relation.LT))
+            for inc_vertex, inc_edge in self.__graph.get_inc_edges(vertex):
+                self.__derive_relations_recursively(inc_vertex)
+
+    def __derive_relation_graph(self):
+        self.__relation_graph = self.__create_relation_graph(self.__graph)
+        for vertex in self.__relation_graph.vertices:
+            if not vertex.flag:
+                self.__derive_relations_recursively(vertex)
+
+    def __set_relations(self):
         pass
 
-    def __get_top_level(self, graph):
+    def __topological_sort(self):
+        pass
+
+    def __get_top_level(self):
         pass
 
     def __assign_compound_layers_to_level(self, vertex_list):
-        pass
+        layers = [0 for _ in range(len(vertex_list))]
+        for vertex in vertex_list:
+            if vertex.minimal:
+                pass
 
     def __assign_compound_layers(self, graph):
-        self.__relation_graph = self.__topological_sort(graph)
+        self.__graph = graph
+        self.__relation_graph = self.__derive_relation_graph()
         self.__assign_compound_layers_to_level(self.__get_top_level(self.__relation_graph))
 
     def draw(self, graph):

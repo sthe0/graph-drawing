@@ -7,20 +7,6 @@ import CompoundDigraph
 import CompoundGraphDrawer
 
 
-class IndexedVertex(Digraph.Vertex):
-    def __init__(self, index):
-        #super(IndexedVertex, self).__init__()
-        self.__index = index
-
-    def get_index(self):
-        return self.__index
-
-    def __hash__(self):
-        return self.__index
-
-    index = property(get_index)
-
-
 def read_graph(filename):
     graph = CompoundDigraph.CompoundDiraph()
     f = open(filename)
