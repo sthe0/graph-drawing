@@ -22,38 +22,28 @@ class IndexedVertex(Vertex):
 
 
 class MutableIndexedVertex(IndexedVertex):
-    def __init__(self, index, flag=False, value=None):
+    def __init__(self, index, **kwargs):
         super(MutableIndexedVertex, self).__init__(index)
-        self.__flag = flag
-        self.__value = value
-
-    def get_flag(self):
-        return self.__flag
-
-    def set_flag(self, value):
-        self.__flag = value
-
-    def get_value(self):
-        return self.__value
-
-    def set_value(self, value):
-        self.__value = value
-
-    flag = property(get_flag, set_flag)
-    value = property(get_flag, set_flag)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 
 class Edge(object):
     pass
+
 
 class Digraph(object):
     def __init__(self):
         self.__vertices = set()
         self.__edges = {}
 
-    def add_vertex(self, vertex):
+    def add_vertex(self, vertex = Vertex()):
         self.__vertices.add(vertex)
         self.__edges[vertex] = {}
+
+    def add_vertices(self, vertices):
+        self.__vertices.update(vertices)
+        self.__edges.update({vertex: {} for vertex in vertices})
 
     def has_vertex(self, vertex):
         return vertex in self.__vertices
@@ -62,9 +52,12 @@ class Digraph(object):
         if not self.has_vertex(vertex):
             return False
         self.__vertices.remove(vertex)
+        for dst in self.__edges[vertex].keys():
+            del self.__edges[dst][vertex]
+        del self.__edges[vertex]
         return True
 
-    def add_edge(self, src, dst, edge):
+    def add_edge(self, src, dst, edge = Edge()):
         if not self.has_vertex(src) or not self.has_vertex(dst):
             return False
         self.__edges[src][dst] = edge
@@ -87,7 +80,7 @@ class Digraph(object):
         return self.__edges[src][dst]
 
     def get_edges(self, vertex):
-        return tuple(self.__edges[vertex].items())
+        return self.__edges[vertex].items()
 
     def invert_edge(self, src, dst):
         tmp = self.__edges[dst][src] if self.has_edge(dst, src) else None
@@ -102,18 +95,18 @@ class Digraph(object):
         for vertex in self.__vertices:
             graph.add_vertex(vertex)
 
-        for src_vertex in graph.vertices:
-            for dst_vertex, edge in graph.get_edges(src_vertex):
-                graph.add_edge(src_vertex, dst_vertex, edge)
+        for src in graph.vertices:
+            for dst, edge in graph.get_edges(src):
+                graph.add_edge(src, dst, edge)
 
     def copy_inverted(self):
         graph = self.copy()
         inverted_edges = set()
-        for src_vertex in graph.vertices:
-            for dst_vertex, edge in graph.get_edges(src_vertex):
-                if graph.has_edge(src_vertex, dst_vertex) and edge not in inverted_edges:
-                    graph.invert_edge(src_vertex, dst_vertex)
-                    inverted_edges.add(graph.get_edge(dst_vertex, src_vertex))
+        for src in graph.vertices:
+            for dst, edge in graph.get_edges(src):
+                if graph.has_edge(src, dst) and edge not in inverted_edges:
+                    graph.invert_edge(src, dst)
+                    inverted_edges.add(graph.get_edge(dst, src))
 
         return graph
 

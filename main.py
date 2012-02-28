@@ -8,7 +8,7 @@ import CompoundGraphDrawer
 
 
 def read_graph(filename):
-    graph = CompoundDigraph.CompoundDiraph()
+    graph = CompoundDigraph.CompoundDigraph()
     f = open(filename)
 
     vertex_count = int(f.readline())
