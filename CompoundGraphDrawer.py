@@ -23,17 +23,6 @@ class RelationEdge(Digraph.Edge):
     relation = property(get_relation)
 
 
-class InclusionVertex(Digraph.Vertex):
-    def __init__(self, level):
-        super(InclusionVertex, self).__init__()
-        self.__level = level
-
-    def get_level(self):
-        return self.__level
-
-    level = property(get_level)
-
-
 class CompoundLayer(list):
     def __cmp__(self, other):
         for i in range(min(len(self), len(other))):
@@ -49,11 +38,14 @@ class CompoundGraphDrawer(object):
     #just declare object private variables
     #show variables interrelations
     def __init__(self):
-        self.__graph = CompoundDigraph.CompoundDigraph()
-        self.__inverted_graph = self.__graph.copy_inverted()
+        self.__vertex_set = set()
+        self.__vertex_dict = {}
+        self.__inc_graph = Digraph.Digraph()
+        self.__adj_graph = Digraph.Digraph()
+        self.__inc_graph_inverted = self.__inc_graph.copy_inverted()
         self.__relation_graph = Digraph.Digraph()
-        self.__vertex_links = self.__graph.vertices
-        self.__uplink_lists = {[] for _ in range(len(self.__inverted_graph))}
+        self.__vertex_links = self.__adj_graph.vertices
+        self.__uplink_lists = {}
 
     def __reset_vertex_flags(self, graph):
         for vertex in graph.vertices:
@@ -63,48 +55,67 @@ class CompoundGraphDrawer(object):
         pass
 
     def __get_same_level_vertex(self, src, dst):
-        if (self.__)
+       if src.level < dst.level:
+           return self.__uplink_lists[dst][dst.level - src.level]
+       else:
+           return self.__uplink_lists[src][src.level - dst.level]
 
     def __create_uplinks_recursively(self, src):
-        for dst, edge in self.__graph.get_inc_edges(src):
-            self.__uplink_lists[dst] = [src] + self.__uplink_lists[src]
+        for dst, edge in self.__inc_graph.get_edges(src):
+            self.__uplink_lists[dst] = [dst] + self.__uplink_lists[src]
             self.__create_uplinks_recursively(dst)
 
     def __create_uplinks(self):
         self.__uplink_lists = {}
-        for vertex in self.__inverted_graph.vertices:
-            if len(self.__inverted_graph.get_edges(vertex)) == 0:
-                self.__uplink_lists[vertex] = [None, ]
+        for vertex in self.__inc_graph_inverted.vertices:
+            if not self.__inc_graph_inverted.get_edges(vertex):
+                self.__uplink_lists[vertex] = [vertex]
                 self.__create_uplinks_recursively(vertex)
                 break
-        for vertex in self.__inverted_graph.vertices:
-            self.__uplink_lists[vertex] = [None] + self.__uplink_lists[vertex]
 
     def __create_inverted_graph(self):
-        self.__inverted_graph = Digraph.Digraph()
-        for i, vertex in enumerate(self.__graph.vertices):
-            self.__inverted_graph.add_vertex(Digraph.MutableIndexedVertex(i, flag=False, value=0, origin=vertex))
-        for src in self.__graph.vertices:
-            for dst in self.__graph.vertices:
-                if self.__graph.has_inc_edge(src, dst):
-                    self.__inverted_graph.add_edge(dst, src)
+        self.__inc_graph_inverted = Digraph.Digraph()
+        self.__inc_graph_inverted.add_vertices(self.__vertex_set)
+        for src in self.__vertex_set:
+            for dst in self.__vertex_set:
+                if self.__inc_graph.has_edge(src, dst):
+                    self.__inc_graph_inverted.add_edge(dst, src)
 
-    def __derive_relations_recursively(self, vertex):
-        for adj_vertex, adj_edge in self.__graph.get_adj_edges(vertex):
+    def __derive_strict_relations(self, vertex):
+        for adj_vertex, adj_edge in self.__adj_graph.get_edges(vertex):
             same_level_vertex = self.__get_same_level_vertex(vertex, adj_vertex)
             self.__relation_graph.add_edge(vertex, same_level_vertex, RelationEdge(Relation.LT))
-            for inc_vertex, inc_edge in self.__graph.get_inc_edges(vertex):
-                self.__derive_relations_recursively(inc_vertex)
+            for inc_vertex, inc_edge in self.__inc_graph.get_edges(vertex):
+                self.__derive_strict_relations(inc_vertex)
+
+    def __make_acyclic(self, vertex_set):
+        pass
+
+    def __derive_all_relations(self, vertex_set):
+        next_level_children = set()
+        for src in vertex_set:
+            for dst, edge in self.__inc_graph.get_edges(src):
+                next_level_children.add(dst)
+        self.__derive_all_relations(next_level_children)
+
+        for src in next_level_children:
+            for dst in next_level_children:
+                if self.__relation_graph.has_edge(src, dst):
+                    src_parent = tuple(self.__inc_graph_inverted.get_edges(src))[0]
+                    dst_parent = tuple(self.__inc_graph_inverted.get_edges(dst))[0]
+                    if (src_parent != dst_parent) and (not self.__relation_graph.has_edge(src_parent, dst_parent)):
+                        self.__relation_graph.add_edge(src_parent, dst_parent, RelationEdge(Relation.LE))
+
+        self.__make_acyclic(vertex_set)
 
     def __derive_relation_graph(self):
         self.__relation_graph = Digraph.Digraph()
+        self.__relation_graph.add_vertices(self.__vertex_set)
 
-        for i, vertex in enumerate(self.__inverted_graph.vertices):
-            self.__relation_graph.vertices.add_vertex(Digraph.MutableIndexedVertex(i, flag=False, level=0, origin=vertex))
-
-        for vertex in self.__graph.vertices:
-            if vertex.value == 0:
-                self.__derive_relations_recursively(vertex)
+        for vertex in self.__inc_graph_inverted.vertices:
+            if not self.__inc_graph_inverted.get_edges(vertex):
+                self.__derive_strict_relations(vertex)
+                self.__derive_all_relations([vertex])
                 break
 
     def __set_relations(self):
@@ -126,8 +137,20 @@ class CompoundGraphDrawer(object):
         self.__assign_compound_layers_to_level(self.__get_top_level())
 
     def __prepare_graph(self, graph):
-        return graph.copy()
+        for vertex in graph.vertices:
+            mutable_vertex = Digraph.MutableVertex(flag=False, level=0, origin=vertex)
+            self.__vertex_set.add(mutable_vertex)
+            self.__vertex_dict[vertex] = mutable_vertex
+        self.__inc_graph = Digraph.Digraph()
+        self.__inc_graph.add_vertices(self.__vertex_set)
+        self.__adj_graph = Digraph.Digraph()
+        self.__adj_graph.add_vertices(self.__vertex_set)
+        for src in graph.vertices:
+            for dst, edge in graph.get_inc_edges(src):
+                self.__inc_graph.add_edge(self.__vertex_dict[src], self.__vertex_dict[dst], edge)
+            for dst, edge in graph.get_adj_edges(src):
+                self.__adj_graph.add_edge(self.__vertex_dict[src], self.__vertex_dict[dst], edge)
 
     def draw(self, graph):
-        self.__graph = self.__prepare_graph(graph)
+        self.__prepare_graph(graph)
         self.__assign_compound_layers()

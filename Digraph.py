@@ -1,34 +1,48 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import CallAggregator
+class ObjectWithId(object):
+    __id = 0
 
+    @classmethod
+    def __get_id(cls):
+        cls.__id += 1
+        return cls.__id
 
-class Vertex(object):
-    pass
+    @classmethod
+    def __update_id(cls, id):
+        cls.__id = max(id, cls.__id)
 
+    def __init__(self, id=None):
+        if id is None:
+            id = self.get_id()
+        self.__id = id
+        self.__update_id(id)
 
-class IndexedVertex(Vertex):
-    def __init__(self, index):
-        super(IndexedVertex, self).__init__()
-        self.__index = index
-
-    def get_index(self):
-        return self.__index
+    def get_id(self):
+        return self.__id
 
     def __hash__(self):
-        return self.__index
+        return self.__id
 
-    index = property(get_index)
+    id = property(get_id)
 
 
-class MutableIndexedVertex(IndexedVertex):
-    def __init__(self, index, **kwargs):
-        super(MutableIndexedVertex, self).__init__(index)
+class Vertex(ObjectWithId):
+    def __init__(self, id=None):
+        if id is not None:
+            super(Vertex, self).__init__(id)
+        else:
+            super(Vertex, self).__init__()
+
+
+class MutableVertex(Vertex):
+    def __init__(self, id=None, **kwargs):
+        super(MutableVertex, self).__init__(id)
         for key, value in kwargs.items():
             setattr(self, key, value)
 
 
-class Edge(object):
+class Edge(ObjectWithId):
     pass
 
 
