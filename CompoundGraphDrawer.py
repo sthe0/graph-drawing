@@ -46,6 +46,8 @@ class CompoundGraphDrawer(object):
         self.__relation_graph = Digraph.Digraph()
         self.__vertex_links = self.__adj_graph.vertices
         self.__uplink_lists = {}
+        self.__root_vertex = Digraph.Vertex()
+        self.__compound_layers = {vertex:CompoundLayer() for vertex in self.__vertex_set}
 
     def __reset_vertex_flags(self, graph):
         for vertex in graph.vertices:
@@ -73,13 +75,14 @@ class CompoundGraphDrawer(object):
                 self.__create_uplinks_recursively(vertex)
                 break
 
-    def __create_inverted_graph(self):
-        self.__inc_graph_inverted = Digraph.Digraph()
-        self.__inc_graph_inverted.add_vertices(self.__vertex_set)
+    def __create_inverted_graph(self, graph):
+        inverted_graph = Digraph.Digraph()
+        inverted_graph.add_vertices(self.__vertex_set)
         for src in self.__vertex_set:
             for dst in self.__vertex_set:
-                if self.__inc_graph.has_edge(src, dst):
-                    self.__inc_graph_inverted.add_edge(dst, src)
+                if graph.has_edge(src, dst):
+                    inverted_graph.add_edge(dst, src)
+        return inverted_graph
 
     def __derive_strict_relations(self, vertex):
         for adj_vertex, adj_edge in self.__adj_graph.get_edges(vertex):
@@ -92,14 +95,14 @@ class CompoundGraphDrawer(object):
         pass
 
     def __derive_all_relations(self, vertex_set):
-        next_level_children = set()
+        child_vertices = set()
         for src in vertex_set:
             for dst, edge in self.__inc_graph.get_edges(src):
-                next_level_children.add(dst)
-        self.__derive_all_relations(next_level_children)
+                child_vertices.add(dst)
+        self.__derive_all_relations(child_vertices)
 
-        for src in next_level_children:
-            for dst in next_level_children:
+        for src in child_vertices:
+            for dst in child_vertices:
                 if self.__relation_graph.has_edge(src, dst):
                     src_parent = tuple(self.__inc_graph_inverted.get_edges(src))[0]
                     dst_parent = tuple(self.__inc_graph_inverted.get_edges(dst))[0]
@@ -111,34 +114,60 @@ class CompoundGraphDrawer(object):
     def __derive_relation_graph(self):
         self.__relation_graph = Digraph.Digraph()
         self.__relation_graph.add_vertices(self.__vertex_set)
+        self.__derive_strict_relations(self.__root_vertex)
+        self.__derive_all_relations({self.__root_vertex})
 
-        for vertex in self.__inc_graph_inverted.vertices:
-            if not self.__inc_graph_inverted.get_edges(vertex):
-                self.__derive_strict_relations(vertex)
-                self.__derive_all_relations([vertex])
+    def __assign_compound_layers_to_level(self, vertex_set):
+        layer = {vertex:0 for vertex in vertex_set}
+        for vertex in vertex_set:
+            if vertex.minimal:
+                layer[vertex] = 1
+        while True:
+            changed = False
+            for src in vertex_set:
+                if layer[src] >= 1:
+                    for dst in vertex_set:
+                        if self.__relation_graph.has_edge(src, dst):
+                            edge = self.__relation_graph.get_edge(src, dst)
+                            if (edge.relation == Relation.LT) and (layer[src] >= layer[dst]):
+                                layer[dst] = layer[src] + 1
+                                changed = True
+                            if (edge.relation == Relation.LE) and (layer[src] > layer[dst]):
+                                layer[dst] = layer[src]
+                                changed = True
+            if not changed:
                 break
 
-    def __set_relations(self):
-        pass
+        child_vertices = set()
+        for vertex in vertex_set:
+            self.__compound_layers[vertex].append(layer[vertex])
+            for dst, edge in self.__inc_graph.get_edges(vertex):
+                child_vertices.add(dst)
 
-    def __get_top_level(self):
-        pass
+        self.__assign_compound_layers_to_level(child_vertices)
 
-    def __assign_compound_layers_to_level(self, vertex_list):
-        layers = [0 for _ in range(len(vertex_list))]
-        for vertex in vertex_list:
-            if vertex.minimal:
-                pass
 
     def __assign_compound_layers(self):
         self.__create_uplinks()
-        self.__create_inverted_graph()
+        self.__inc_graph_inverted = self.__create_inverted_graph(self.__inc_graph)
+
+        for vertex in self.__inc_graph_inverted.vertices:
+            if not self.__inc_graph_inverted.get_edges(vertex):
+                self.__root_vertex = vertex
+                break
+
         self.__derive_relation_graph()
-        self.__assign_compound_layers_to_level(self.__get_top_level())
+        self.__relation_graph_inverted = self.__create_inverted_graph(self.__adj_graph)
+
+        for vertex in self.__relation_graph.vertices:
+            if not self.__relation_graph_inverted.get_edges(vertex):
+                vertex.minimal = True
+
+        self.__assign_compound_layers_to_level([self.__root_vertex])
 
     def __prepare_graph(self, graph):
         for vertex in graph.vertices:
-            mutable_vertex = Digraph.MutableVertex(flag=False, level=0, origin=vertex)
+            mutable_vertex = Digraph.MutableVertex(flag=False, level=0, origin=vertex, minimal=False)
             self.__vertex_set.add(mutable_vertex)
             self.__vertex_dict[vertex] = mutable_vertex
         self.__inc_graph = Digraph.Digraph()
