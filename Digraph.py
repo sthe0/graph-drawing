@@ -93,7 +93,7 @@ class Digraph(object):
             return None
         return self.__edges[src][dst]
 
-    def get_edges(self, vertex):
+    def get_neighbours(self, vertex):
         return self.__edges[vertex].items()
 
     def invert_edge(self, src, dst):
@@ -104,20 +104,23 @@ class Digraph(object):
     def get_vertices(self):
         return tuple(self.__vertices)
 
+    def get_edges(self):
+        return [(src, dst, edge) for src in self.__vertices for dst, edge in self.get_neighbours(src)]
+
     def copy(self):
         graph = Digraph()
         for vertex in self.__vertices:
             graph.add_vertex(vertex)
 
         for src in graph.vertices:
-            for dst, edge in graph.get_edges(src):
+            for dst, edge in graph.get_neighbours(src):
                 graph.add_edge(src, dst, edge)
 
     def copy_inverted(self):
         graph = self.copy()
         inverted_edges = set()
         for src in graph.vertices:
-            for dst, edge in graph.get_edges(src):
+            for dst, edge in graph.get_neighbours(src):
                 if graph.has_edge(src, dst) and edge not in inverted_edges:
                     graph.invert_edge(src, dst)
                     inverted_edges.add(graph.get_edge(dst, src))
@@ -125,3 +128,4 @@ class Digraph(object):
         return graph
 
     vertices = property(get_vertices)
+    edges = property(get_edges)
