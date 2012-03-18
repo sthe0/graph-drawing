@@ -50,10 +50,10 @@ class CompoundDigraph(object):
         return self.__inc_graph.invert_edge(src, dst)
 
     def get_adj_edges(self, vertex):
-        return self.__adj_graph.get_edges(vertex)
+        return self.__adj_graph.get_neighbours(vertex)
 
     def get_inc_edges(self, vertex):
-        return self.__inc_graph.get_edges(vertex)
+        return self.__inc_graph.get_neighbours(vertex)
 
     def copy_adj_graph(self):
         return self.__adj_graph.copy()

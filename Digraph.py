@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from collections import OrderedDict
+
 class ObjectWithId(object):
     __id = 0
 
@@ -49,7 +51,7 @@ class Edge(ObjectWithId):
 class Digraph(object):
     def __init__(self):
         self.__vertices = set()
-        self.__edges = {}
+        self.__edges = OrderedDict()
 
     def add_vertex(self, vertex = Vertex()):
         self.__vertices.add(vertex)

@@ -75,6 +75,8 @@ class CompoundLayer(list):
 
 
 class CompoundGraphDrawer(object):
+    __order_iterations = 10
+
     #empty declarations
     #just declare object private variables
     #show variables interrelations
@@ -86,6 +88,7 @@ class CompoundGraphDrawer(object):
         self.__inc_graph_inverted = self.__inc_graph.copy_inverted()
         self.__relation_graph = Digraph.Digraph()
         self.__relation_graph_inverted = Digraph.Digraph()
+        self.__ordered_graph = Digraph.Digraph()
         self.__vertex_links = self.__adj_graph.vertices
         self.__uplink_lists = {}
         self.__root_vertex = Digraph.Vertex()
@@ -302,6 +305,60 @@ class CompoundGraphDrawer(object):
             elif src_layer[-1] + 1 != dst_layer[-1]:
                 self.__adj_graph.remove_edge(src, dst)
                 self.__create_dummy_vertex_adj_chain(src, dst)
+
+    def __split_into_levels(self, vertex):
+        pass
+
+    def __minimize_closeness(self, vertex):
+        pass
+
+    def __create_dummies(self, level):
+        pass
+
+    def __barycentric_order(self, level1, level2):
+        pass
+
+    def __merge_lists(self, list1, list2, base_list):
+        pass
+
+    def __remove_dummies(self, level):
+        pass
+
+    def __make_ordering_step(self, splitted, index, prev):
+        dummies = self.__create_dummies(splitted[index]["middle"])
+        merged = self.__merge_lists(splitted[prev]["middle"], dummies, splitted[index]["middle"])
+        merged, splitted[index]["middle"] = self.__barycentric_order(merged, splitted[index]["middle"])
+        splitted[prev]["middle"] = self.__remove_dummies(merged)
+
+    def __order_local(self, vertex):
+        levels = self.__split_into_levels(vertex)
+        splitted = []
+        for level in levels:
+            splitted.append(self.__minimize_closeness(level))
+
+        for i in range(self.__order_iterations):
+            init_dummies = self.__create_dummies(splitted[0]["middle"])
+            init_dummies, splitted[0]["middle"] = self.__barycentric_order(init_dummies, splitted[0]["middle"])
+
+            for j in range(1, len(splitted)):
+                self.__make_ordering_step(splitted, j, j - 1)
+
+            init_dummies = self.__create_dummies(splitted[-1]["middle"])
+            init_dummies, splitted[-1]["middle"] = self.__barycentric_order(init_dummies, splitted[-1]["middle"])
+
+            for j in reversed(range(0, len(splitted) - 1)):
+                self.__make_ordering_step(splitted, j, j + 1)
+
+    def __order_global(self, vertex):
+        self.__order_local(vertex)
+        for child, edge in self.__inc_graph.get_neighbours(vertex):
+            self.__order_global(child)
+
+    def __determine_vertex_order(self):
+        self.__ordered_graph = Digraph.Digraph()
+        self.__ordered_graph.add_vertices(self.__vertex_set)
+        self.__add_vertex.registerFunction(self.__ordered_graph.add_vertex())
+        self.__order_global(self.__root_vertex)
 
     def __prepare_graph(self, graph):
         self.__vertex_set.clear()
