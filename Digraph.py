@@ -3,22 +3,10 @@
 from collections import OrderedDict
 
 class ObjectWithId(object):
-    __id = 0
-
-    @classmethod
-    def __get_id(cls):
-        cls.__id += 1
-        return cls.__id
-
-    @classmethod
-    def __update_id(cls, id):
-        cls.__id = max(id, cls.__id)
-
     def __init__(self, id=None):
         if id is None:
-            id = self.get_id()
+            id = id(self)
         self.__id = id
-        self.__update_id(id)
 
     def get_id(self):
         return self.__id
