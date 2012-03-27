@@ -26,6 +26,9 @@ class ObjectWithId(object):
     def __hash__(self):
         return self.__id
 
+    def __eq__(self, other):
+        return self.__id == other.__id
+
     id = property(get_id)
 
 
@@ -128,6 +131,9 @@ class Digraph(object):
                     inverted_edges.add(graph.get_edge(dst, src))
 
         return graph
+
+    def remove_all_edges(self):
+        self.__edges = OrderedDict()
 
     vertices = property(get_vertices)
     edges = property(get_edges)
