@@ -481,6 +481,9 @@ class CompoundGraphDrawer(object):
         self.__add_vertex.registerFunction(self.__ordered_graph.add_vertex())
         self.__order_global(self.__root_vertex)
 
+    def __position_graph(self):
+        pass
+
     def __prepare_graph(self, graph):
         self.__vertex_set.clear()
         for vertex in graph.vertices:
