@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import Digraph
 import CompoundDigraph
+import DrawingFramework
 from CallAggregator import CallAggregator
 from functools import total_ordering
 
@@ -101,6 +102,7 @@ class CompoundGraphDrawer(object):
         self.__left_top_y = 1
         self.__d1 = d1
         self.__d2 = d2
+        self.__drawer = DrawingFramework.Canvas()
 
     def __create_mutable_vertex(self,
                                 flag=False,
@@ -602,6 +604,9 @@ class CompoundGraphDrawer(object):
         self.__add_vertex.registerFunction(self.__inc_graph.add_vertex)
         self.__add_vertex.registerFunction(self.__adj_graph.add_vertex)
 
+    def __layout(self):
+        pass
+
     #we assume that inclusion graph is a rooted tree
     def draw(self, graph):
         self.__prepare_graph(graph)
@@ -610,3 +615,4 @@ class CompoundGraphDrawer(object):
         self.__normalize_graph()
         self.__determine_vertex_order()
         self.__layout_local(self.__root_vertex)
+        self.__layout()
