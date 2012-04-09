@@ -80,7 +80,7 @@ class CompoundGraphDrawer(object):
     #empty declarations
     #just declare object private variables
     #show variables interrelations
-    def __init__(self):
+    def __init__(self, leaf_width=10, d1=1, d2=1):
         self.__vertex_set = set()
         self.__vertex_dict = {}
         self.__inc_graph = Digraph.Digraph()
@@ -96,6 +96,11 @@ class CompoundGraphDrawer(object):
         self.__compound_layer = {vertex:CompoundLayer() for vertex in self.__vertex_set}
         self.__add_vertex = CallAggregator()
         self.__order_service_graph = Digraph.Digraph()
+        self.__leaf_width = leaf_width
+        self.__left_top_x = 1
+        self.__left_top_y = 1
+        self.__d1 = d1
+        self.__d2 = d2
 
     def __create_mutable_vertex(self,
                                 flag=False,
@@ -104,14 +109,20 @@ class CompoundGraphDrawer(object):
                                 minimal=False,
                                 adj_left=0,
                                 adj_right=0,
-                                order_index=0):
+                                order_index=0,
+                                width=0,
+                                x=0,
+                                y=0):
         return Digraph.MutableVertex(flag=flag,
                                      level=level,
                                      origin=origin,
                                      minimal=minimal,
                                      adj_left=adj_left,
                                      adj_right=adj_right,
-                                     order_index=order_index)
+                                     order_index=order_index,
+                                     width=width,
+                                     x=x,
+                                     y=y)
 
     def __reset_vertex_flags(self, graph):
         for vertex in graph.vertices:
@@ -214,7 +225,6 @@ class CompoundGraphDrawer(object):
                 child_vertices.add(dst)
 
         self.__assign_compound_layers_to_level(child_vertices)
-
 
     def __assign_compound_layers(self):
         self.__create_uplinks()
@@ -337,14 +347,15 @@ class CompoundGraphDrawer(object):
 
         return levels
 
+    #TODO: check whether it is correct to use compound layers for order determination!
     def __count_level_neighbours(self, level):
         for vertex in level:
             for dst, edge in self.__order_service_graph.get_neighbours(vertex):
                 if dst not in level:
-                    if dst.order_index < dst.order_index:
-                        dst.adj_left += 1
+                    if self.__compound_layer[dst][-1] < self.__compound_layer[vertex][-1]:
+                        vertex.adj_left += 1
                     else:
-                        dst.adj_right += 1
+                        vertex.adj_right += 1
 
     def __minimize_closeness(self, level):
         splitted = {"left" : [], "middle" : [], "right" : []}
@@ -381,7 +392,7 @@ class CompoundGraphDrawer(object):
     def __compute_barycenter(self, src, level):
         mean = 0
         for dst in level:
-            if self.__adj_graph.has_edge(src, dst) or\
+            if self.__adj_graph.has_edge(src, dst) or \
                self.__adj_graph_inverted.has_edge(src, dst):
                 mean += dst.order_index
         src.order_index = mean / len(level)
@@ -430,6 +441,7 @@ class CompoundGraphDrawer(object):
         self.__barycentric_order(merged, splitted[index]["middle"])
         splitted[prev]["middle"] = self.__remove_dummies(merged)
 
+    #TODO: store levels somehow!
     def __order_local(self, vertex):
         levels = self.__split_into_levels(vertex)
         splitted = []
@@ -481,8 +493,91 @@ class CompoundGraphDrawer(object):
         self.__add_vertex.registerFunction(self.__ordered_graph.add_vertex())
         self.__order_global(self.__root_vertex)
 
-    def __position_graph(self):
-        pass
+    def __compute_connectivity(self, src, level):
+        connectivity = 0
+        for dst in level:
+            if self.__adj_graph.has_edge(src, dst) or\
+               self.__adj_graph_inverted.has_edge(src, dst):
+                connectivity += 1
+        return connectivity
+
+    def __split_level(self, level, top_vertex):
+        left_part = []
+        rigth_part = []
+        for vertex in level:
+            if vertex.x < top_vertex.x:
+                left_part.append(vertex)
+            else:
+                rigth_part.append(vertex)
+        return left_part, rigth_part
+
+    def __improve_local(self, level, left_bound, right_bound):
+        if len(level) == 0:
+            return []
+
+        top_vertex = level.pop()
+        left_part, right_part = self.__split_level(level, top_vertex)
+
+        right_shift = min(right_bound - top_vertex.order_index, right_bound - top_vertex.x - 1 - len(right_part))
+        left_shift = min(top_vertex.order_index - left_bound, top_vertex.x - left_bound - 1 - len(right_part))
+
+        if right_shift > 0:
+            top_vertex.x = max(top_vertex.x + right_shift, top_vertex.x)
+            for n, vertex in enumerate(right_part):
+                new_x = top_vertex.x + n + 1 + right_shift
+                if new_x < vertex.x:
+                    break
+                vertex.x = new_x
+
+        if left_shift > 0:
+            top_vertex.x = min(top_vertex.x - right_shift, top_vertex.x)
+            for n, vertex in enumerate(left_part):
+                new_x = top_vertex.x - n - 1 - right_shift
+                if vertex.x < new_x:
+                    break
+                vertex.x = new_x
+
+        return self.__improve_local(left_part, left_bound, top_vertex.x) + [top_vertex] + \
+               self.__improve_local(right_part, top_vertex.x, right_bound)
+
+    def __improve_positions(self, levels, index, prev):
+        sorted_level = list(sorted(levels[index], lambda x: x.connectivity[prev - index]))
+        for vertex in sorted_level:
+            self.__compute_barycenter(vertex, levels[prev])
+        return self.__improve_local(sorted_level, 0, len(sorted_level) * 2)
+
+    def __prm_method(self, vertex):
+        levels = self.__split_into_levels(vertex) #maybe it's better to use global levels list
+
+        for i in range(0, len(levels)):
+            levels[i][0].x = levels[i][0].width / 2
+
+            for j in range(1, len(levels[i])):
+                levels[i][j].x = levels[i][j - 1].x + self.__d2 + levels[i][j - 1].width / 2 + levels[i][j].width / 2
+
+            for j in range(0, len(levels[i])):
+                levels[i][j].connectivity = {}
+                if i < len(levels) - 1:
+                    levels[i][j].connectivity[-1] = self.__compute_connectivity(levels[i][j], levels[i - 1])
+                if i > 0:
+                    levels[i][j].connectivity[+1] = self.__compute_connectivity(levels[i][j], levels[i + 1])
+
+            for i in range(1, len(levels)):
+                levels = self.__improve_positions(levels, i, i - 1)
+            for i in range(reversed(range(0, len(levels) - 1))):
+                levels = self.__improve_positions(levels, i, i + 1)
+            for i in range(1, len(levels)):
+                levels = self.__improve_positions(levels, i, i - 1)
+
+    def __layout_local(self, vertex):
+        if len(self.__inc_graph.get_neighbours(vertex)) == 0:
+            vertex.width = self.__leaf_width
+            return
+
+        for dst, edge in self.__inc_graph.get_neighbours(vertex):
+            self.__layout_local(dst)
+
+        self.__prm_method(vertex)
 
     def __prepare_graph(self, graph):
         self.__vertex_set.clear()
@@ -514,4 +609,4 @@ class CompoundGraphDrawer(object):
         self.__assign_compound_layers()
         self.__normalize_graph()
         self.__determine_vertex_order()
-        self.__position_graph()
+        self.__layout_local(self.__root_vertex)
