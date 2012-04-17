@@ -39,9 +39,8 @@ class SpecEdge(Digraph.Edge):
     inverted = property(get_inverted)
 
 
-@total_ordering
 class CompoundLayer(list):
-    def __cmp__(self, other):
+    def cmp(self, other):
         for i in range(min(len(self), len(other))):
             if self[i] < other[i]:
                 return -1
@@ -50,19 +49,19 @@ class CompoundLayer(list):
         return len(other) - len(self)
 
     def __le__(self, other):
-        return self.__cmp__(other) <= 0
+        return self.cmp(other) <= 0
 
     def __lt__(self, other):
-        return self.__cmp__(other) < 0
+        return self.cmp(other) < 0
 
     def __ge__(self, other):
-        return self.__cmp__(other) >= 0
+        return self.cmp(other) >= 0
 
     def __gt__(self, other):
-        return self.__cmp__(other) > 0
+        return self.cmp(other) > 0
 
     def __eq__(self, other):
-        return self.__cmp__(other) == 0
+        return self.cmp(other) == 0
 
     @classmethod
     def get_common_prefix(cls, layer1, layer2):
@@ -75,13 +74,42 @@ class CompoundLayer(list):
         return prefix
 
 
+class TreeNode(object):
+    def __init__(self):
+        self.__parent = None
+        self.__children = {}
+        self.y = None
+
+    def __add_child(self, index):
+        if index in self.__children:
+            return
+        node = TreeNode()
+        node.__parent = self
+        self.__children[index] = node
+
+    def __getitem__(self, index):
+        return self.__children[index]
+
+    def __delitem__(self, index):
+        del self.__children[index]
+
+    def get_children(self):
+        return self.__children.items()
+
+    def get_parent(self):
+        return self.__parent
+
+    children = property(get_children)
+    parent = property(get_parent)
+
+
 class CompoundGraphDrawer(object):
     __order_iterations = 10
 
     #empty declarations
     #just declare object private variables
     #show variables interrelations
-    def __init__(self, leaf_width=10, d1=1, d2=1):
+    def __init__(self, leaf_width=10, leaf_height = 10, d1=1, d2=1):
         self.__vertex_set = set()
         self.__vertex_dict = {}
         self.__inc_graph = Digraph.Digraph()
@@ -99,11 +127,13 @@ class CompoundGraphDrawer(object):
         self.__order_service_graph = Digraph.Digraph()
         self.__y_coords = {}
         self.__leaf_width = leaf_width
+        self.__leaf_height = leaf_height
         self.__left_top_x = 1
         self.__left_top_y = 1
         self.__d1 = d1
         self.__d2 = d2
         self.__drawer = DrawingFramework.Canvas()
+        self.__compound_layer_tree = TreeNode()
 
     def __create_mutable_vertex(self,
                                 flag=False,
@@ -637,9 +667,29 @@ class CompoundGraphDrawer(object):
         self.__add_vertex.registerFunction(self.__inc_graph.add_vertex)
         self.__add_vertex.registerFunction(self.__adj_graph.add_vertex)
 
-    def __set_y_coords(self, vertex):
-        if len(self.__inc_graph.get_neighbours(vertex)) == 0:
-            self.__y_coords[self.__compound_layer[]]
+    def __build_compound_layer_tree(self, vertex, node):
+        for edge, dst in self.__inc_graph.get_neighbours(vertex):
+            index = self.__compound_layer[dst][-1]
+            node.add_child(index)
+            self.__build_compound_layer_tree(dst, node[index])
+
+    def __set_y_coordinates_r(self, node):
+        if len(node.children) == 0:
+            node.height = self.__leaf_height
+            return
+
+        min_y = self.__d1
+        max_y = min_y - self.__d2
+
+        for child in node.children: #assume children in increasing compound layer order
+            self.__set_y_coordinates_r(child)
+            child.y = max_y + self.__d2 + int((child.width + 1.0) / 2)
+            max_y = max_y + self.__d2 + child.width
+        node.width = max_y - min_y + 2 * self.__d1
+
+    def __set_y_coordinates(self):
+        self.__build_compound_layer_tree(self.__root_vertex, self.__compound_layer_tree)
+        self.__set_y_coordinates_r(self.__compound_layer_tree)
 
     def __layout(self, vertex):
         levels = self.__split_into_levels(vertex)
@@ -654,5 +704,5 @@ class CompoundGraphDrawer(object):
         self.__normalize_graph()
         self.__determine_vertex_order()
         self.__set_local_x_coords(self.__root_vertex)
-        self.__set_y_coords(self.__root_vertex)
+        self.__set_y_coordinates()
         self.__layout(self.__root_vertex)
