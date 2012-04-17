@@ -79,6 +79,7 @@ class TreeNode(object):
         self.__parent = None
         self.__children = {}
         self.y = None
+        self.height = None
 
     def __add_child(self, index):
         if index in self.__children:
@@ -134,6 +135,7 @@ class CompoundGraphDrawer(object):
         self.__d2 = d2
         self.__drawer = DrawingFramework.Canvas()
         self.__compound_layer_tree = TreeNode()
+        self.__compound_layer_tree_node = {vertex:TreeNode() for vertex in self.__vertex_set}
 
     def __create_mutable_vertex(self,
                                 flag=False,
@@ -671,6 +673,7 @@ class CompoundGraphDrawer(object):
         for edge, dst in self.__inc_graph.get_neighbours(vertex):
             index = self.__compound_layer[dst][-1]
             node.add_child(index)
+            self.__compound_layer_tree_node[vertex] = node[index]
             self.__build_compound_layer_tree(dst, node[index])
 
     def __set_y_coordinates_r(self, node):
@@ -683,18 +686,32 @@ class CompoundGraphDrawer(object):
 
         for child in node.children: #assume children in increasing compound layer order
             self.__set_y_coordinates_r(child)
-            child.y = max_y + self.__d2 + int((child.width + 1.0) / 2)
-            max_y = max_y + self.__d2 + child.width
-        node.width = max_y - min_y + 2 * self.__d1
+            child.y = max_y + self.__d2 + child.height / 2
+            max_y = max_y + self.__d2 + child.height
+        node.height = max_y - min_y + 2 * self.__d1
 
     def __set_y_coordinates(self):
         self.__build_compound_layer_tree(self.__root_vertex, self.__compound_layer_tree)
         self.__set_y_coordinates_r(self.__compound_layer_tree)
+        self.__compound_layer_tree.y = self.__compound_layer_tree.height / 2
 
-    def __layout(self, vertex):
+    def __get_type(self, vertex):
+        pass
+
+    def __layout(self, vertex, min_x, min_y):
         levels = self.__split_into_levels(vertex)
         for level in levels:
-            pass
+            for vrtx in level:
+                node = self.__compound_layer_tree_node[vrtx]
+                self.__drawer.draw_vertex(min_x + vrtx.x, min_y + node.y,
+                                          vrtx.width, node.height)
+                self.__layout(vrtx, min_x + vrtx.x - vrtx.width / 2, node.y - node.height / 2)
+
+                for edge, dst in self.__adj_graph.get_neighbours(vrtx):
+                    node_dst = self.__compound_layer_tree_node[dst]
+                    self.__drawer.draw_edge(vrtx.x, node.y, vrtx.width, node.height,
+                                            dst.x, dst.width, node_dst.y, node_dst.height,
+                                            self.__get_type(dst))
 
     #we assume that inclusion graph is a rooted tree
     def draw(self, graph):
@@ -705,4 +722,4 @@ class CompoundGraphDrawer(object):
         self.__determine_vertex_order()
         self.__set_local_x_coords(self.__root_vertex)
         self.__set_y_coordinates()
-        self.__layout(self.__root_vertex)
+        self.__layout(self.__root_vertex, 0, 0)
