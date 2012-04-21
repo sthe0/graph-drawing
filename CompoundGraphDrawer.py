@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import sys
 import Digraph
 import CompoundDigraph
 import DrawingFramework
@@ -133,7 +134,7 @@ class CompoundGraphDrawer(object):
         self.__left_top_y = 1
         self.__d1 = d1
         self.__d2 = d2
-        self.__drawer = DrawingFramework.Canvas()
+        self.__drawer = DrawingFramework.DrawingFramework()
         self.__compound_layer_tree = TreeNode()
         self.__compound_layer_tree_node = {vertex:TreeNode() for vertex in self.__vertex_set}
 
@@ -171,17 +172,17 @@ class CompoundGraphDrawer(object):
        else:
            return self.__uplink_lists[src][src.level - dst.level]
 
-    def __create_uplinks_recursively(self, src):
+    def __create_uplinks_r(self, src):
         for dst, edge in self.__inc_graph.get_neighbours(src):
             self.__uplink_lists[dst] = [dst] + self.__uplink_lists[src]
-            self.__create_uplinks_recursively(dst)
+            self.__create_uplinks_r(dst)
 
     def __create_uplinks(self):
         self.__uplink_lists = {}
         for vertex in self.__inc_graph_inverted.vertices:
             if not self.__inc_graph_inverted.get_neighbours(vertex):
                 self.__uplink_lists[vertex] = [vertex]
-                self.__create_uplinks_recursively(vertex)
+                self.__create_uplinks_r(vertex)
                 break
 
     def __create_inverted_graph(self, graph):
@@ -399,12 +400,13 @@ class CompoundGraphDrawer(object):
 
         return levels
 
-    #TODO: check whether it is correct to use compound layers for order determination!
     def __count_level_neighbours(self, level):
         for vertex in level:
             for dst, edge in self.__order_service_graph.get_neighbours(vertex):
-                if dst not in level:
-                    if self.__compound_layer[dst][-1] < self.__compound_layer[vertex][-1]:
+                vertex_parent = self.__get_parent(vertex)
+                dst_parent = self.__get_parent(dst)
+                if vertex_parent != dst_parent:
+                    if dst_parent.order_index < vertex_parent.order_index:
                         vertex.adj_left += 1
                     else:
                         vertex.adj_right += 1
@@ -528,6 +530,7 @@ class CompoundGraphDrawer(object):
         for child, edge in self.__inc_graph.get_neighbours(vertex):
             self.__order_global(child)
 
+    #TODO: count edges for pairs of vertices?
     def __init_order_service_graph(self, src):
         for dst, edge in self.__inc_graph.get_neighbours(src):
             self.__init_order_service_graph(dst)
@@ -577,9 +580,10 @@ class CompoundGraphDrawer(object):
 
         top_vertex = level.pop()
         left_part, right_part = self.__split_level(level, top_vertex)
-
-        right_shift = min(right_bound - top_vertex.barycenter, right_bound - top_vertex.x - 1 - len(right_part))
-        left_shift = min(top_vertex.barycenter - left_bound, top_vertex.x - left_bound - 1 - len(left_part))
+        left_part_width = max(vrtx.x + vrtx.width / 2 for vrtx in left_part) - min(vrtx.x - vrtx.width / 2 for vrtx in left_part)
+        right_part_width = max(vrtx.x + vrtx.width / 2 for vrtx in right_part) - min(vrtx.x - vrtx.width / 2 for vrtx in right_part)
+        right_shift = min(right_bound - top_vertex.barycenter, right_bound - top_vertex.x - right_part_width) - top_vertex.width / 2
+        left_shift = min(top_vertex.barycenter - left_bound, top_vertex.x - left_bound - left_part_width) - top_vertex.width / 2
 
         if right_shift > 0:
             top_vertex.x = max(top_vertex.x + right_shift, top_vertex.x)
@@ -597,23 +601,24 @@ class CompoundGraphDrawer(object):
                     break
                 vertex.x = new_x
 
-        return self.__improve_local(left_part, left_bound, top_vertex.x) + [top_vertex] + \
-               self.__improve_local(right_part, top_vertex.x, right_bound)
+        return self.__improve_local(left_part, left_bound, top_vertex.x - self.__d2 / 2) + [top_vertex] + \
+               self.__improve_local(right_part, top_vertex.x + self.__d2 / 2, right_bound)
 
     def __improve_positions(self, levels, index, prev):
         sorted_level = list(sorted(levels[index], lambda x: x.connectivity[prev - index]))
         for vertex in sorted_level:
             self.__compute_barycenter2(vertex, levels[prev])
-        return self.__improve_local(sorted_level, -len(sorted_level), len(sorted_level) * 2)
+        return self.__improve_local(sorted_level, -sys.maxsize, sys.maxsize)
 
     def __prm_method(self, vertex):
         levels = self.__split_into_levels(vertex) #maybe it's better to use global levels list
 
         for i in range(0, len(levels)):
+            levels[i] = list(sorted(levels[i], lambda x: x.order_index))
             levels[i][0].x = levels[i][0].width / 2
 
             for j in range(1, len(levels[i])):
-                levels[i][j].x = levels[i][j - 1].x + self.__d2 + levels[i][j - 1].width / 2 + levels[i][j].width / 2
+                levels[i][j].x = levels[i][j - 1].x + levels[i][j - 1].width / 2 + self.__d2 + levels[i][j].width / 2
 
             for j in range(0, len(levels[i])):
                 levels[i][j].connectivity = {}
@@ -622,16 +627,16 @@ class CompoundGraphDrawer(object):
                 if i > 0:
                     levels[i][j].connectivity[+1] = self.__compute_connectivity(levels[i][j], levels[i + 1])
 
-            for i in range(1, len(levels)):
-                levels = self.__improve_positions(levels, i, i - 1)
-            for i in range(reversed(range(0, len(levels) - 1))):
-                levels = self.__improve_positions(levels, i, i + 1)
-            for i in range(1, len(levels)):
-                levels = self.__improve_positions(levels, i, i - 1)
+        for i in range(1, len(levels)):
+            levels = self.__improve_positions(levels, i, i - 1)
+        for i in range(reversed(range(0, len(levels) - 1))):
+            levels = self.__improve_positions(levels, i, i + 1)
+        for i in range(1, len(levels)):
+            levels = self.__improve_positions(levels, i, i - 1)
 
         vertices = list(sum(levels, []))
-        min_x = min(*[vrtx.x - vrtx.width / 2 for vrtx in vertices])
-        max_x = max(*[vrtx.x + vrtx.width / 2 for vrtx in vertices])
+        min_x = min(vrtx.x - vrtx.width / 2 for vrtx in vertices)
+        max_x = max(vrtx.x + vrtx.width / 2 for vrtx in vertices)
         for vrtx in vertices:
             vrtx.x -= min_x - self.__d1
         vertex.width = max_x - min_x + 2 * self.__d1
@@ -693,7 +698,7 @@ class CompoundGraphDrawer(object):
     def __set_y_coordinates(self):
         self.__build_compound_layer_tree(self.__root_vertex, self.__compound_layer_tree)
         self.__set_y_coordinates_r(self.__compound_layer_tree)
-        self.__compound_layer_tree.y = self.__compound_layer_tree.height / 2
+        self.__compound_layer_tree.y = self.__compound_layer_tree_node[self.__compound_layer_tree].height / 2
 
     def __get_type(self, vertex):
         pass
@@ -722,4 +727,8 @@ class CompoundGraphDrawer(object):
         self.__determine_vertex_order()
         self.__set_local_x_coords(self.__root_vertex)
         self.__set_y_coordinates()
+        self.__drawer.init()
         self.__layout(self.__root_vertex, 0, 0)
+
+    def set_drawer_options(self):
+        pass
