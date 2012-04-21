@@ -41,6 +41,9 @@ class SpecEdge(Digraph.Edge):
 
 
 class CompoundLayer(list):
+    def __init__(self):
+        super(CompoundLayer, self).__init__()
+
     def cmp(self, other):
         for i in range(min(len(self), len(other))):
             if self[i] < other[i]:
@@ -611,6 +614,10 @@ class CompoundGraphDrawer(object):
         return self.__improve_local(sorted_level, -sys.maxsize, sys.maxsize)
 
     def __prm_method(self, vertex):
+        if vertex.origin is None:
+            vertex.width = 0
+            return
+
         levels = self.__split_into_levels(vertex) #maybe it's better to use global levels list
 
         for i in range(0, len(levels)):
@@ -643,13 +650,19 @@ class CompoundGraphDrawer(object):
 
     def __set_local_x_coords(self, vertex):
         if len(self.__inc_graph.get_neighbours(vertex)) == 0:
-            vertex.width = self.__leaf_width
+            if vertex.origin is None:
+                vertex.width = 0
+            else:
+                vertex.width = self.__leaf_width
             return
 
         for dst, edge in self.__inc_graph.get_neighbours(vertex):
             self.__set_local_x_coords(dst)
 
         self.__prm_method(vertex)
+
+    def __add_to_vertex_set(self, vertex):
+        self.__vertex_set.add(vertex)
 
     def __prepare_graph(self, graph):
         self.__vertex_set.clear()
@@ -670,7 +683,7 @@ class CompoundGraphDrawer(object):
                 self.__adj_graph.add_edge(self.__vertex_dict[src], self.__vertex_dict[dst], SpecEdge())
 
         self.__add_vertex.unregisterAll()
-        self.__add_vertex.registerFunction(self.__vertex_set.add)
+        self.__add_vertex.registerFunction(self.__add_to_vertex_set)
         self.__add_vertex.registerFunction(self.__inc_graph.add_vertex)
         self.__add_vertex.registerFunction(self.__adj_graph.add_vertex)
 
@@ -707,7 +720,10 @@ class CompoundGraphDrawer(object):
         self.__compound_layer_tree.y = self.__compound_layer_tree_node[self.__compound_layer_tree].height / 2
 
     def __get_type(self, vertex):
-        pass
+        if vertex.origin is None:
+            return EdgeType.ToDummy
+        else:
+            return EdgeType.ToReal
 
     def __layout(self, vertex, min_x, min_y):
         levels = self.__split_into_levels(vertex)
@@ -727,15 +743,15 @@ class CompoundGraphDrawer(object):
     #we assume that inclusion graph is a rooted tree
     def draw(self, graph):
         self.__prepare_graph(graph)
-        #we assume now there are now parent-child adjacency edges in the graph
+        #we assume now there are no parent-child adjacency edges in the graph
         self.__assign_compound_layers()
         self.__normalize_graph()
         self.__determine_vertex_order()
-        self.__restore_edge_direcitons()
+        self.__restore_edge_directions()
         self.__set_local_x_coords(self.__root_vertex)
         self.__set_y_coordinates()
         self.__drawer.init()
         self.__layout(self.__root_vertex, 0, 0)
 
-    def set_drawer_options(self):
+    def set_drawer_options(self, **kwargs):
         pass

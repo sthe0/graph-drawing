@@ -19,10 +19,10 @@ class CompoundDigraph(object):
     def remove_vertex(self, vertex):
         return self.__adj_graph.remove_vertex(vertex) and self.__inc_graph.remove_vertex(vertex)
 
-    def add_adj_edge(self, src, dst, edge):
+    def add_adj_edge(self, src, dst, edge=Digraph.Edge()):
         return self.__adj_graph.add_edge(src, dst, edge)
 
-    def add_inc_edge(self, src, dst, edge):
+    def add_inc_edge(self, src, dst, edge=Digraph.Edge()):
         return self.__inc_graph.add_edge(src, dst, edge)
 
     def has_adj_edge(self, src, dst):
@@ -49,10 +49,10 @@ class CompoundDigraph(object):
     def invert_inc_edge(self, src, dst):
         return self.__inc_graph.invert_edge(src, dst)
 
-    def get_adj_edges(self, vertex):
+    def get_adj_neighbours(self, vertex):
         return self.__adj_graph.get_neighbours(vertex)
 
-    def get_inc_edges(self, vertex):
+    def get_inc_neighbours(self, vertex):
         return self.__inc_graph.get_neighbours(vertex)
 
     def copy_adj_graph(self):
