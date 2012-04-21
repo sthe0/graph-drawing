@@ -674,6 +674,12 @@ class CompoundGraphDrawer(object):
         self.__add_vertex.registerFunction(self.__inc_graph.add_vertex)
         self.__add_vertex.registerFunction(self.__adj_graph.add_vertex)
 
+    def __restore_edge_directions(self):
+        for src, dst, edge in self.__adj_graph.edges:
+            if edge.inverted:
+                edge.invert()
+                self.__adj_graph.invert_edge(src, dst)
+
     def __build_compound_layer_tree(self, vertex, node):
         for edge, dst in self.__inc_graph.get_neighbours(vertex):
             index = self.__compound_layer[dst][-1]
@@ -725,6 +731,7 @@ class CompoundGraphDrawer(object):
         self.__assign_compound_layers()
         self.__normalize_graph()
         self.__determine_vertex_order()
+        self.__restore_edge_direcitons()
         self.__set_local_x_coords(self.__root_vertex)
         self.__set_y_coordinates()
         self.__drawer.init()
