@@ -22,5 +22,5 @@ class CallAggregator(object):
         for function in self.__aggregated_functions:
             one_result = function(*args, **kwargs)
             if one_result is not None:
-                set.add(one_result)
+                result.add(one_result)
         return self.__result_aggregator(result) if self.__result_aggregator is not None else result
