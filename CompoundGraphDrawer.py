@@ -366,9 +366,7 @@ class CompoundGraphDrawer(object):
         return vertex.adj_left - vertex.adj_right
 
     def __split_into_levels(self, vertex):
-        local_vertices = []
-        for dst, edge in self.__inc_graph.get_neighbours(vertex):
-            local_vertices.append(dst)
+        local_vertices = [dst for dst, edge in self.__inc_graph.get_neighbours(vertex)]
 
         levels = {}
         for vrtx in local_vertices:
