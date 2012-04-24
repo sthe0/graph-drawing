@@ -171,11 +171,11 @@ class CompoundGraphDrawer(object):
         for vertex in graph.vertices:
             vertex.flag = False
 
-    def __get_same_level_vertex(self, src, dst):
+    def __get_same_level_vertices(self, src, dst):
        if src.level < dst.level:
-           return self.__uplink_lists[dst][dst.level - src.level]
+           return src, self.__uplink_lists[dst][dst.level - src.level]
        else:
-           return self.__uplink_lists[src][src.level - dst.level]
+           return self.__uplink_lists[src][src.level - dst.level], dst
 
     def __create_uplinks(self, src):
         for dst, edge in self.__inc_graph.get_neighbours(src):
@@ -196,8 +196,8 @@ class CompoundGraphDrawer(object):
 
     def __derive_strict_relations(self, vertex):
         for adj_vertex, adj_edge in self.__adj_graph.get_neighbours(vertex):
-            same_level_vertex = self.__get_same_level_vertex(vertex, adj_vertex)
-            self.__relation_graph.add_edge(vertex, same_level_vertex, RelationEdge(Relation.LT))
+            vertex1, vertex2 = self.__get_same_level_vertices(vertex, adj_vertex)
+            self.__relation_graph.add_edge(vertex1, vertex2, RelationEdge(Relation.LT))
         for inc_vertex, inc_edge in self.__inc_graph.get_neighbours(vertex):
             self.__derive_strict_relations(inc_vertex)
 
@@ -232,8 +232,8 @@ class CompoundGraphDrawer(object):
                 child_vertices.add(dst)
         self.__derive_all_relations(child_vertices)
 
-        for src in child_vertices:
-            for dst in child_vertices:
+        for src in vertex_set:
+            for dst in vertex_set:
                 if self.__relation_graph.has_edge(src, dst):
                     src_parent = self.__get_parent(src)
                     dst_parent = self.__get_parent(dst)
@@ -297,7 +297,7 @@ class CompoundGraphDrawer(object):
         self.__create_uplinks(self.__root_vertex)
 
         self.__derive_relation_graph()
-        self.__relation_graph_inverted = self.__create_inverted_graph(self.__adj_graph)
+        self.__relation_graph_inverted = self.__create_inverted_graph(self.__relation_graph)
         self.__add_vertex.registerFunction(self.__relation_graph_inverted.add_vertex)
 
         for vertex in self.__relation_graph.vertices:
@@ -322,83 +322,45 @@ class CompoundGraphDrawer(object):
         dst_layer = self.__compound_layer[dst]
         parent = self.__get_parent(src)
         prev_vertex = src
-        next_vertex = None
-        for i in range(src_layer[-1] + 1, dst_layer[-1]):
+        for i in range(src_layer[-1], dst_layer[-1]):
             next_vertex = self.__create_mutable_vertex(False, prev_vertex.level, None, False)
             self.__add_dummy_vertex(next_vertex, parent)
             self.__compound_layer[next_vertex] = src_layer + [i]
             self.__adj_graph.add_edge(prev_vertex, next_vertex, SpecEdge(inverted))
             prev_vertex = next_vertex
-        self.__adj_graph.add_edge(next_vertex, dst, SpecEdge(inverted))
+        self.__adj_graph.add_edge(prev_vertex, dst, SpecEdge(inverted))
 
     def __create_dummy_vertex_inc_chain(self, src, dst):
-        prev_vertex = src
-        src_layer = self.__compound_layer[src]
-        dst_layer = self.__compound_layer[dst]
-        for i in range(len(src_layer), len(dst_layer) - 1):
-            next_vertex = self.__create_mutable_vertex(False, i, None, False)
+        top_neighbour = self.__create_mutable_vertex(False, src.level + 1, None, False)
+        self.__add_dummy_vertex(top_neighbour, src)
+        self.__compound_layer[top_neighbour] = self.__compound_layer[src] + \
+                                               [self.__compound_layer[dst][src.level + 1]]
+        prev_vertex = top_neighbour
+        for i in range(src.level + 1, dst.level):
+            next_vertex = self.__create_mutable_vertex(False, i + 1, None, False)
             self.__add_dummy_vertex(next_vertex, prev_vertex)
             self.__compound_layer[next_vertex] = self.__compound_layer[prev_vertex] + \
-                                                 self.__compound_layer[dst][i]
+                                                 [self.__compound_layer[dst][i + 1]]
             prev_vertex = next_vertex
-        self.__inc_graph.add_edge(prev_vertex, dst)
-        self.__inc_graph_inverted.add_edge(dst, prev_vertex)
+        return top_neighbour, prev_vertex
 
     def __normalize_graph(self):
         for src, dst, edge in self.__adj_graph.edges: #recall there are no parent-child adjacency edges!
-            src_layer = self.__compound_layer[src]
-            dst_layer = self.__compound_layer[dst]
-            src_parent_layer = src_layer[0:-1]
-            dst_parent_layer = dst_layer[0:-1]
             inverted = edge.inverted
-            if src_parent_layer != dst_parent_layer:
-                self.__adj_graph.remove_edge(src, dst)
-                common_prefix = CompoundLayer.get_common_prefix(src_layer, dst_layer)
-                if common_prefix == src_layer:
-                    vertex1 = self.__create_mutable_vertex(False, src.level, None, False)
-                    self.__add_dummy_vertex(vertex1, self.__get_parent(src))
-                    self.__compound_layer[vertex1] = src_parent_layer + [dst_layer[len(common_prefix)]]
-                    self.__create_dummy_vertex_adj_chain(src, vertex1, inverted)
-
-                    vertex2 = self.__create_mutable_vertex(False, dst.level, None, False)
-                    self.__compound_layer[vertex2] = dst_parent_layer + [dst_layer[-1] - 1]
-                    self.__add_vertex(vertex2)
-                    self.__create_dummy_vertex_inc_chain(vertex1, vertex2)
-                    self.__adj_graph.add_edge(vertex2, dst, inverted)
-                elif common_prefix == dst_layer:
-                    vertex1 = self.__create_mutable_vertex(False, dst.level, None, False)
-                    self.__add_dummy_vertex(vertex1, self.__get_parent(dst))
-                    self.__compound_layer[vertex1] = dst_parent_layer + [src_layer[len(common_prefix)]]
-                    self.__create_dummy_vertex_adj_chain(vertex1, dst, inverted)
-
-                    vertex2 = self.__create_mutable_vertex(False, src.level, None, False)
-                    self.__compound_layer[vertex2] = src_parent_layer + [src_layer[-1] + 1]
-                    self.__add_vertex(vertex2)
-                    self.__create_dummy_vertex_inc_chain(vertex1, vertex2)
-                    self.__adj_graph.add_edge(src, vertex2, SpecEdge(inverted))
-                else:
-                    top_src = self.__create_mutable_vertex(False, len(common_prefix), None, False)
-                    top_dst = self.__create_mutable_vertex(False, len(common_prefix), None, False)
-                    parent = self.__get_parent(self.__get_same_level_vertex(src, top_src))
-                    self.__add_dummy_vertex(top_src, parent)
-                    self.__add_dummy_vertex(top_dst, parent)
-                    self.__compound_layer[top_src] = common_prefix + [src_layer[len(common_prefix)]]
-                    self.__compound_layer[top_dst] = common_prefix + [dst_layer[len(common_prefix)]]
-                    self.__create_dummy_vertex_adj_chain(top_src, top_dst, inverted)
-
-                    src_neighbour = self.__create_mutable_vertex(False, src.level, None, False)
-                    dst_neighbour = self.__create_mutable_vertex(False, dst.level, None, False)
-                    self.__add_vertex(src_neighbour)
-                    self.__add_vertex   (dst_neighbour)
-                    self.__compound_layer[src_neighbour] = src_parent_layer + [src_layer[-1] + 1]
-                    self.__compound_layer[dst_neighbour] = dst_parent_layer + [dst_layer[-1] - 1]
-                    self.__create_dummy_vertex_inc_chain(top_src, src_neighbour)
-                    self.__create_dummy_vertex_inc_chain(top_dst, dst_neighbour)
-                    self.__adj_graph.add_edge(src, src_neighbour, SpecEdge(inverted))
-                    self.__adj_graph.add_edge(dst_neighbour, dst, SpecEdge(inverted))
-            elif src_layer[-1] + 1 != dst_layer[-1]:
-                self.__adj_graph.remove_edge(src, dst)
-                self.__create_dummy_vertex_adj_chain(src, dst, inverted)
+            self.__adj_graph.remove_edge(src, dst)
+            src_top, dst_top = self.__get_same_level_vertices(src, dst)
+            parent = self.__get_parent(src_top)
+            src_top_neighbour = src
+            dst_top_neighbour = dst
+            if src_top != src:
+                src_top_neighbour, src_neighbour = self.__create_dummy_vertex_inc_chain(parent, src)
+                self.__compound_layer[src_neighbour][-1] += 1
+                self.__adj_graph.add_edge(src, src_neighbour)
+            if dst_top != dst:
+                dst_top_neighbour, dst_neighbour = self.__create_dummy_vertex_inc_chain(parent, dst)
+                self.__compound_layer[dst_neighbour][-1] -= 1
+                self.__adj_graph.add_edge(dst_neighbour, dst)
+            self.__create_dummy_vertex_adj_chain(src_top_neighbour, dst_top_neighbour, inverted)
 
     def __get_adj_difference(self, vertex):
         return vertex.adj_left - vertex.adj_right
@@ -452,6 +414,7 @@ class CompoundGraphDrawer(object):
                     vertex = self.__create_mutable_vertex(False, 0, None, False, True)
                     self.__add_temp_dummy_vertex(src, dst, vertex)
                     dummies.append(vertex)
+        return dummies
 
     def __compute_barycenter(self, src, level):
         mean = 0
@@ -470,7 +433,7 @@ class CompoundGraphDrawer(object):
         src.barycenter = mean / len(level)
 
     def __set_order_indexes(self, level):
-        for n, item in enumerate(sorted(lambda x: x.barycenter, level)):
+        for n, item in enumerate(sorted(level, key=(lambda x: x.barycenter))):
             item.order_index = n
 
     def __barycentric_order(self, level1, level2):
@@ -518,7 +481,7 @@ class CompoundGraphDrawer(object):
         splitted = []
         for level in levels:
             self.__count_level_neighbours(level)
-            for n, vertex in enumerate(sorted(level, self.__get_adj_difference)):
+            for n, vertex in enumerate(sorted(level, key=self.__get_adj_difference)):
                 vertex.order_index = n
             splitted.append(self.__minimize_closeness(level))
 
@@ -619,7 +582,7 @@ class CompoundGraphDrawer(object):
                self.__improve_local(right_part, top_vertex.x + self.__d2 / 2, right_bound)
 
     def __improve_positions(self, levels, index, prev):
-        sorted_level = list(sorted(levels[index], lambda x: x.connectivity[prev - index]))
+        sorted_level = list(sorted(levels[index], key=(lambda x: x.connectivity[prev - index])))
         for vertex in sorted_level:
             self.__compute_barycenter2(vertex, levels[prev])
         return self.__improve_local(sorted_level, -sys.maxsize, sys.maxsize)
@@ -632,7 +595,7 @@ class CompoundGraphDrawer(object):
         levels = self.__split_into_levels(vertex) #maybe it's better to use global levels list
 
         for i in range(0, len(levels)):
-            levels[i] = list(sorted(levels[i], lambda x: x.order_index))
+            levels[i] = list(sorted(levels[i], key=(lambda x: x.order_index)))
             levels[i][0].x = levels[i][0].width / 2
 
             for j in range(1, len(levels[i])):

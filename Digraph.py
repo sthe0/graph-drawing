@@ -96,9 +96,8 @@ class Digraph(object):
         return self.__edges[vertex].items()
 
     def invert_edge(self, src, dst):
-        tmp = self.__edges[dst][src] if self.has_edge(dst, src) else None
         self.__edges[dst][src] = self.__edges[src][dst]
-        if tmp is not None: self.__edges[src][dst] = tmp
+        del self.__edges[src][dst]
 
     def get_vertices(self):
         return tuple(self.__vertices)
