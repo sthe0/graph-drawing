@@ -3,10 +3,10 @@
 from collections import OrderedDict
 
 class ObjectWithId(object):
-    def __init__(self, id=None):
-        if id is None:
-            id = id(self)
-        self.__id = id
+    def __init__(self, object_id=None):
+        if object_id is None:
+            object_id = id(self)
+        self.__id = object_id
 
     def get_id(self):
         return self.__id
@@ -44,13 +44,19 @@ class Digraph(object):
         self.__vertices = set()
         self.__edges = OrderedDict()
 
-    def add_vertex(self, vertex = Vertex()):
+    def add_vertex(self, vertex=Vertex()):
+        if vertex in self.__vertices:
+            return False
         self.__vertices.add(vertex)
         self.__edges[vertex] = {}
+        return True
 
     def add_vertices(self, vertices):
+        if not self.__vertices.isdisjoint(vertices):
+            return False
         self.__vertices.update(vertices)
         self.__edges.update({vertex: {} for vertex in vertices})
+        return True
 
     def has_vertex(self, vertex):
         return vertex in self.__vertices
@@ -64,7 +70,7 @@ class Digraph(object):
         del self.__edges[vertex]
         return True
 
-    def add_edge(self, src, dst, edge = Edge()):
+    def add_edge(self, src, dst, edge=Edge()):
         if not self.has_vertex(src) or not self.has_vertex(dst):
             return False
         self.__edges[src][dst] = edge
@@ -90,9 +96,8 @@ class Digraph(object):
         return self.__edges[vertex].items()
 
     def invert_edge(self, src, dst):
-        tmp = self.__edges[dst][src] if self.has_edge(dst, src) else None
         self.__edges[dst][src] = self.__edges[src][dst]
-        if tmp is not None: self.__edges[src][dst] = tmp
+        del self.__edges[src][dst]
 
     def get_vertices(self):
         return tuple(self.__vertices)
@@ -108,6 +113,8 @@ class Digraph(object):
         for src in graph.vertices:
             for dst, edge in graph.get_neighbours(src):
                 graph.add_edge(src, dst, edge)
+
+        return graph
 
     def copy_inverted(self):
         graph = self.copy()
