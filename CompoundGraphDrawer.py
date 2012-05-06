@@ -344,23 +344,27 @@ class CompoundGraphDrawer(object):
             prev_vertex = next_vertex
         return top_neighbour, prev_vertex
 
+    def __get_common_ancestor(self, src, dst):
+        src_layer = self.__compound_layer[src]
+        dst_layer = self.__compound_layer[dst]
+        common_prefix = CompoundLayer.get_common_prefix(src_layer, dst_layer)
+        return self.__uplink_lists[src][len(src_layer) - len(common_prefix)]
+
     def __normalize_graph(self):
         for src, dst, edge in self.__adj_graph.edges: #recall there are no parent-child adjacency edges!
             inverted = edge.inverted
             self.__adj_graph.remove_edge(src, dst)
-            src_top, dst_top = self.__get_same_level_vertices(src, dst)
-            parent = self.__get_parent(src_top)
-            src_top_neighbour = src
-            dst_top_neighbour = dst
-            if src_top != src:
-                src_top_neighbour, src_neighbour = self.__create_dummy_vertex_inc_chain(parent, src)
+            common_ancestor = self.__get_common_ancestor(src, dst)
+            src_top, dst_top = src, dst
+            if self.__get_parent(src) != common_ancestor:
+                src_top, src_neighbour = self.__create_dummy_vertex_inc_chain(common_ancestor, src)
                 self.__compound_layer[src_neighbour][-1] += 1
                 self.__adj_graph.add_edge(src, src_neighbour)
-            if dst_top != dst:
-                dst_top_neighbour, dst_neighbour = self.__create_dummy_vertex_inc_chain(parent, dst)
+            if self.__get_parent(dst) != common_ancestor:
+                dst_top, dst_neighbour = self.__create_dummy_vertex_inc_chain(common_ancestor, dst)
                 self.__compound_layer[dst_neighbour][-1] -= 1
                 self.__adj_graph.add_edge(dst_neighbour, dst)
-            self.__create_dummy_vertex_adj_chain(src_top_neighbour, dst_top_neighbour, inverted)
+            self.__create_dummy_vertex_adj_chain(src_top, dst_top, inverted)
 
     def __get_adj_difference(self, vertex):
         return vertex.adj_left - vertex.adj_right
@@ -453,9 +457,6 @@ class CompoundGraphDrawer(object):
 
     def __remove_dummy_vertex(self, vertex):
         if vertex.temporary:
-            for dst, edge in self.__adj_graph_inverted.get_neighbours(vertex):
-                self.__adj_graph.remove_edge(dst, vertex)
-                self.__adj_graph_inverted.remove_edge(vertex, dst)
             self.__adj_graph.remove_vertex(vertex)
             self.__adj_graph_inverted.remove_vertex(vertex)
             return False
@@ -475,6 +476,8 @@ class CompoundGraphDrawer(object):
         self.__set_order_indexes(splitted[index]["middle"])
 
     def __order_local(self, vertex):
+        if not self.__inc_graph.has_neighbours(vertex):
+            return
         levels = self.__split_into_levels(vertex)
         splitted = []
         for level in levels:
@@ -484,14 +487,16 @@ class CompoundGraphDrawer(object):
             splitted.append(self.__minimize_closeness(level))
 
         for i in range(self.__order_iterations):
-            init_dummies = self.__create_dummies(splitted[0]["middle"])
-            self.__barycentric_order(init_dummies, splitted[0]["middle"])
+            if len(splitted[0]["middle"]) > 1:
+                init_dummies = self.__create_dummies(splitted[0]["middle"])
+                self.__barycentric_order(init_dummies, splitted[0]["middle"])
 
             for j in range(1, len(splitted)):
                 self.__make_ordering_step(splitted, j, j - 1)
 
-            init_dummies = self.__create_dummies(splitted[-1]["middle"])
-            self.__barycentric_order(init_dummies, splitted[-1]["middle"])
+            if len(splitted[-1]["middle"]) > 1:
+                init_dummies = self.__create_dummies(splitted[-1]["middle"])
+                self.__barycentric_order(init_dummies, splitted[-1]["middle"])
 
             for j in reversed(range(0, len(splitted) - 1)):
                 self.__make_ordering_step(splitted, j, j + 1)
@@ -621,7 +626,7 @@ class CompoundGraphDrawer(object):
         vertex.width = max_x - min_x + 2 * self.__d1
 
     def __set_local_x_coords(self, vertex):
-        if len(self.__inc_graph.get_neighbours(vertex)) == 0:
+        if not self.__inc_graph.has_neighbours(vertex):
             if vertex.origin is None:
                 vertex.width = 0
             else:

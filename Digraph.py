@@ -66,7 +66,8 @@ class Digraph(object):
             return False
         self.__vertices.remove(vertex)
         for dst in self.__edges[vertex].keys():
-            del self.__edges[dst][vertex]
+            if vertex in self.__edges[dst]:
+                del self.__edges[dst][vertex]
         del self.__edges[vertex]
         return True
 
@@ -91,6 +92,9 @@ class Digraph(object):
         if not self.has_edge(src, dst):
             return None
         return self.__edges[src][dst]
+
+    def has_neighbours(self, vertex):
+        return len(self.__edges[vertex]) != 0
 
     def get_neighbours(self, vertex):
         return self.__edges[vertex].items()
