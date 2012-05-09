@@ -51,7 +51,11 @@ class DrawingFramework(object):
         self.__initialized = True
 
     def draw_vertex(self, x, y, width, height):
-        coordinates = (x - width / 2, y - width / 2, x + width / 2, y + width / 2)
+        x *= 10
+        y *= 10
+        width *= 10
+        height *= 10
+        coordinates = (x - width / 2, y - height / 2, x + width / 2, y + height / 2)
         self.__canvas.create_rectangle(coordinates, self.__vertex_parameters)
 
     def __draw_arrow(self, x1, y1, x2, y2):

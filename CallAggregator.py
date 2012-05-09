@@ -7,13 +7,13 @@ class CallAggregator(object):
         self.__result_aggregator = result_aggregator
         self.__static_kwargs = {} if kwargs is None else kwargs
 
-    def registerFunction(self, function):
+    def register_function(self, function):
         self.__aggregated_functions.add(function)
 
-    def unregisterFunction(self, function):
+    def unregister_function(self, function):
         self.__aggregated_functions.remove(function)
 
-    def unregisterAll(self):
+    def unregister_all(self):
         self.__aggregated_functions.clear()
 
     def __call__(self, *args, **kwargs):
