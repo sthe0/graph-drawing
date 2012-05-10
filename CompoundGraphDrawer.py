@@ -6,6 +6,7 @@ import CompoundDigraph
 import DrawingFramework
 from CallAggregator import CallAggregator
 from copy import copy
+from Tree import Tree
 
 class Relation:
     LT = 0
@@ -78,35 +79,6 @@ class CompoundLayer(list):
         return prefix
 
 
-class TreeNode(object):
-    def __init__(self):
-        self.__parent = None
-        self.__children = {}
-        self.y = None
-        self.height = None
-
-    def add_child(self, index):
-        if index in self.__children:
-            return
-        node = TreeNode()
-        node.__parent = self
-        self.__children[index] = node
-
-    def __getitem__(self, index):
-        return self.__children[index]
-
-    def __delitem__(self, index):
-        del self.__children[index]
-
-    def get_children(self):
-        return self.__children.items()
-
-    def get_parent(self):
-        return self.__parent
-
-    children = property(get_children)
-    parent = property(get_parent)
-
 
 class CompoundGraphDrawer(object):
     __order_iterations = 10
@@ -115,22 +87,23 @@ class CompoundGraphDrawer(object):
     #just declare object private variables
     #show variables interrelations
     def __init__(self, leaf_width=10, leaf_height = 10, d1=1, d2=1):
-        self.__vertex_set = set()
-        self.__vertex_dict = {}
-        self.__inc_graph = Digraph.Digraph()
+        self.__inc_tree = Tree()
+        self.__inc_tree_nodes = {}
         self.__adj_graph = Digraph.Digraph()
-        self.__inc_graph_inverted = self.__inc_graph.copy_inverted()
-        self.__adj_graph_inverted = self.__inc_graph.copy_inverted()
         self.__relation_graph = Digraph.Digraph()
-        self.__relation_graph_inverted = Digraph.Digraph()
         self.__ordered_graph = Digraph.Digraph()
-        self.__vertex_links = self.__adj_graph.vertices
-        self.__uplink_lists = {}
-        self.__root_vertex = Digraph.Vertex()
-        self.__compound_layer = {vertex:CompoundLayer() for vertex in self.__vertex_set}
-        self.__add_vertex = CallAggregator()
+        self.__compound_layer_tree = Tree()
+        self.__compound_layer_tree_nodes = {}
+        self.__fake_vertices = set()
+        self.__dummy_vertices = set()
+        self.__adj_left = {}
+        self.__adj_right = {}
         self.__order_service_graph = Digraph.Digraph()
-        self.__y_coords = {}
+        self.__order_index = {}
+        self.__barycenter = {}
+        self.__x = {}
+        self.__y = {}
+        self.__width = {}
         self.__leaf_width = leaf_width
         self.__leaf_height = leaf_height
         self.__left_top_x = 1
@@ -138,74 +111,30 @@ class CompoundGraphDrawer(object):
         self.__d1 = d1
         self.__d2 = d2
         self.__drawer = DrawingFramework.DrawingFramework()
-        self.__compound_layer_tree = TreeNode()
-        self.__compound_layer_tree_node = {vertex:TreeNode() for vertex in self.__vertex_set}
 
-    def __create_mutable_vertex(self,
-                                flag=False,
-                                level=0,
-                                origin=None,
-                                minimal=False,
-                                temporary=False,
-                                adj_left=0,
-                                adj_right=0,
-                                order_index=0,
-                                barycenter=0,
-                                width=0,
-                                x=0,
-                                y=0):
-        return Digraph.MutableVertex(flag=flag,
-                                     level=level,
-                                     origin=origin,
-                                     minimal=minimal,
-                                     temporary=temporary,
-                                     adj_left=adj_left,
-                                     adj_right=adj_right,
-                                     order_index=order_index,
-                                     barycenter=barycenter,
-                                     width=width,
-                                     x=x,
-                                     y=y)
+    def __compare_compound_layers(self, node1, node2):
+        least_common_ancestor = self.__compound_layer_tree.get_least_common_ancestor(node1, node2)
+        index1, ancestor1 = self.__compound_layer_tree.get_child_ancestor(least_common_ancestor, node1)
+        index2, ancestor2 = self.__compound_layer_tree.get_child_ancestor(least_common_ancestor, node2)
+        if ancestor1.data < ancestor2.data:
+            return -1
+        if ancestor1.data > ancestor2.data:
+            return 1
+        return 0
 
-    def __reset_vertex_flags(self, graph):
-        for vertex in graph.vertices:
-            vertex.flag = False
+    def __derive_strict_relations(self, node):
+        for dst, edge in self.__adj_graph.get_neighbours(node.origin):
+            node1, node2 = self.__inc_tree.get_same_level_vertices(node, self.__inc_tree_nodes[dst])
+            self.__relation_graph.add_edge(node1.origin, node2.origin, RelationEdge(Relation.LT))
+        for index, child in node.children:
+            self.__derive_strict_relations(child.origin)
 
-    def __get_same_level_vertices(self, src, dst):
-       if src.level < dst.level:
-           return src, self.__uplink_lists[dst][dst.level - src.level]
-       else:
-           return self.__uplink_lists[src][src.level - dst.level], dst
-
-    def __create_uplinks(self, src):
-        for dst, edge in self.__inc_graph.get_neighbours(src):
-            self.__uplink_lists[dst] = [dst] + self.__uplink_lists[src]
-            self.__create_uplinks(dst)
-
-    def __create_inverted_graph(self, graph):
-        inverted_graph = Digraph.Digraph()
-        inverted_graph.add_vertices(self.__vertex_set)
-        for src, dst, edge in graph.edges:
-            inverted_graph.add_edge(dst, src, edge)
-        return inverted_graph
-
-    def __set_levels(self, src, level=0):
-        src.level = level
-        for dst, edge in self.__inc_graph.get_neighbours(src):
-            self.__set_levels(dst, level + 1)
-
-    def __derive_strict_relations(self, vertex):
-        for adj_vertex, adj_edge in self.__adj_graph.get_neighbours(vertex):
-            vertex1, vertex2 = self.__get_same_level_vertices(vertex, adj_vertex)
-            self.__relation_graph.add_edge(vertex1, vertex2, RelationEdge(Relation.LT))
-        for inc_vertex, inc_edge in self.__inc_graph.get_neighbours(vertex):
-            self.__derive_strict_relations(inc_vertex)
-
-    def __induce_graph(self, vertex_set):
+    def __induce_graph(self, node_set):
+        vertices = [node.origin for node in node_set]
         graph = Digraph.Digraph()
-        graph.add_vertices(vertex_set)
-        for src in vertex_set:
-            for dst in vertex_set:
+        graph.add_vertices(vertices)
+        for src in vertices:
+            for dst in vertices:
                 if self.__relation_graph.has_edge(src, dst):
                     graph.add_edge(src, dst)
         return graph
@@ -219,44 +148,40 @@ class CompoundGraphDrawer(object):
                 if ordered_vertices[src] < ordered_vertices[dst]:
                     self.__relation_graph.invert_edge(src, dst)
 
-    def __get_parent(self, vertex):
-        return tuple(self.__inc_graph_inverted.get_neighbours(vertex))[0][0]
-
-    def __derive_all_relations(self, vertex_set):
-        if len(vertex_set) == 0:
+    def __derive_all_relations(self, node_set):
+        if len(node_set) == 0:
             return
 
-        child_vertices = set()
-        for src in vertex_set:
-            for dst, edge in self.__inc_graph.get_neighbours(src):
-                child_vertices.add(dst)
-        self.__derive_all_relations(child_vertices)
+        children = set()
+        for node in node_set:
+            for index, child in node.children:
+                children.add(child)
+        self.__derive_all_relations(children)
 
-        for src in vertex_set:
-            for dst in vertex_set:
-                if self.__relation_graph.has_edge(src, dst):
-                    src_parent = self.__get_parent(src)
-                    dst_parent = self.__get_parent(dst)
-                    if (src_parent != dst_parent) and (not self.__relation_graph.has_edge(src_parent, dst_parent)):
-                        self.__relation_graph.add_edge(src_parent, dst_parent, RelationEdge(Relation.LE))
+        for src_node in node_set:
+            for dst_node in node_set:
+                if self.__relation_graph.has_edge(src_node.origin, dst_node.origin):
+                    src_parent_node = src_node.parent
+                    dst_parent_node = dst_node.parent
+                    if src_parent_node != dst_parent_node and \
+                       not self.__relation_graph.has_edge(src_parent_node.origin, dst_parent_node.origin):
+                        self.__relation_graph.add_edge(src_parent_node, dst_parent_node, RelationEdge(Relation.LE))
 
-        self.__make_acyclic(self.__induce_graph(vertex_set))
+        self.__make_acyclic(self.__induce_graph(node_set))
 
     def __derive_relation_graph(self):
         self.__relation_graph = Digraph.Digraph()
-        self.__relation_graph.add_vertices(self.__vertex_set)
-        self.__set_levels(self.__root_vertex)
-        self.__derive_strict_relations(self.__root_vertex)
-        self.__derive_all_relations({self.__root_vertex})
-        self.__add_vertex.register_function(self.__relation_graph.add_vertex)
+        self.__relation_graph.add_vertices(self.__adj_graph.vertices)
+        self.__derive_strict_relations(self.__inc_tree.root)
+        self.__derive_all_relations(set(self.__inc_tree.root.children.values()))
 
-    def __assign_compound_layers_to_level(self, vertex_set):
+    def __assign_compound_layers_r(self, vertex_set):
         if len(vertex_set) == 0:
             return
 
         layer = {vertex:0 for vertex in vertex_set}
         for vertex in vertex_set:
-            if vertex.minimal:
+            if not self.__relation_graph.has_inverted_neighbours(vertex):
                 layer[vertex] = 1
         while True:
             changed = False
@@ -274,170 +199,179 @@ class CompoundGraphDrawer(object):
             if not changed:
                 break
 
-        child_vertices = set()
+        children = set()
         for vertex in vertex_set:
-            self.__compound_layer[vertex].append(layer[vertex])
-            for dst, edge in self.__inc_graph.get_neighbours(vertex):
-                self.__compound_layer[dst] = copy(self.__compound_layer[vertex])
-                child_vertices.add(dst)
+            parent = self.__inc_tree_nodes[vertex].parent.origin
+            new_node = self.__compound_layer_tree_nodes[parent].add_child(layer[vertex], layer[vertex])[0]
+            self.__compound_layer_tree_nodes[vertex] = new_node
+            for index, child in self.__inc_tree_nodes[vertex].children:
+                children.add(child.origin)
 
-        self.__assign_compound_layers_to_level(child_vertices)
+        self.__assign_compound_layers_r(children)
 
     def __assign_compound_layers(self):
-        self.__inc_graph_inverted = self.__create_inverted_graph(self.__inc_graph)
-        self.__add_vertex.register_function(self.__inc_graph_inverted.add_vertex)
-
-        for vertex in self.__inc_graph_inverted.vertices:
-            if not self.__inc_graph_inverted.has_neighbours(vertex):
-                self.__root_vertex = vertex
-                break
-
-        self.__uplink_lists = dict()
-        self.__uplink_lists[self.__root_vertex] = [self.__root_vertex]
-        self.__create_uplinks(self.__root_vertex)
-
         self.__derive_relation_graph()
-        self.__relation_graph_inverted = self.__create_inverted_graph(self.__relation_graph)
-        self.__add_vertex.register_function(self.__relation_graph_inverted.add_vertex)
 
-        for vertex in self.__relation_graph.vertices:
-            if not self.__relation_graph_inverted.has_neighbours(vertex):
-                vertex.minimal = True
-
-        self.__compound_layer[self.__root_vertex] = []
-        self.__assign_compound_layers_to_level([self.__root_vertex])
+        self.__compound_layer_tree = Tree(root_data=1)
+        self.__compound_layer_tree_nodes[self.__inc_tree.root.origin] = self.__compound_layer_tree.root
+        self.__assign_compound_layers_r([self.__inc_tree.root.origin])
 
         for src, dst, edge in self.__adj_graph.edges:
-            if self.__compound_layer[src] > self.__compound_layer[dst]:
+            if self.__compare_compound_layers(self.__compound_layer_tree_nodes[src],
+                                              self.__compound_layer_tree_nodes[dst]) > 0:
                 self.__adj_graph.invert_edge(src, dst)
                 self.__adj_graph.get_edge(dst, src).invert()
 
-    def __add_dummy_vertex(self, vertex, parent):
-        self.__add_vertex(vertex)
-        self.__inc_graph.add_edge(parent, vertex)
-        self.__inc_graph_inverted.add_edge(vertex, parent)
+    def __add_vertex(self, parent_node, cl_index):
+        vertex = Digraph.Vertex()
+        self.__adj_graph.add_vertex(vertex)
 
-    def __create_dummy_vertex_adj_chain(self, src, dst, inverted):
-        src_layer = self.__compound_layer[src]
-        dst_layer = self.__compound_layer[dst]
-        parent = self.__get_parent(src)
+        node = parent_node.add_child(len(parent_node.children))[0]
+        node.origin = vertex
+        self.__inc_tree_nodes[vertex] = node
+
+        cl_node = self.__compound_layer_tree_nodes[parent_node.origin][cl_index]
+        self.__compound_layer_tree_nodes[vertex] = cl_node
+
+        return node
+
+    def __create_fake_vertex_adj_chain(self, src, dst, inverted):
+        src_cl_node = self.__compound_layer_tree_nodes[src]
+        dst_cl_node = self.__compound_layer_tree_nodes[dst]
         prev_vertex = src
-        for i in range(src_layer[-1] + 1, dst_layer[-1]):
-            next_vertex = self.__create_mutable_vertex(False, prev_vertex.level, None, False)
-            self.__add_dummy_vertex(next_vertex, parent)
-            self.__compound_layer[next_vertex] = src_layer[0:-1] + [i]
+        for i in range(src_cl_node.data + 1, dst_cl_node.data):
+            next_vertex = self.__add_vertex(src_cl_node.parent, i).origin
             self.__adj_graph.add_edge(prev_vertex, next_vertex, SpecEdge(inverted))
             prev_vertex = next_vertex
         self.__adj_graph.add_edge(prev_vertex, dst, SpecEdge(inverted))
 
-    def __create_dummy_vertex_inc_chain(self, src, dst):
-        top_neighbour = self.__create_mutable_vertex(False, src.level + 1, None, False)
-        self.__add_dummy_vertex(top_neighbour, src)
-        self.__compound_layer[top_neighbour] = self.__compound_layer[src] + \
-                                               [self.__compound_layer[dst][src.level + 1]]
-        prev_vertex = top_neighbour
-        for i in range(src.level + 1, dst.level):
-            next_vertex = self.__create_mutable_vertex(False, i + 1, None, False)
-            self.__add_dummy_vertex(next_vertex, prev_vertex)
-            self.__compound_layer[next_vertex] = self.__compound_layer[prev_vertex] + \
-                                                 [self.__compound_layer[dst][i + 1]]
-            prev_vertex = next_vertex
-        return top_neighbour, prev_vertex
+    def __create_fake_vertex_inc_chain(self, inc_node, cl_node, adjustment):
+        prev_node = inc_node
 
-    def __get_common_ancestor(self, src, dst):
-        src_layer = self.__compound_layer[src]
-        dst_layer = self.__compound_layer[dst]
-        common_prefix = CompoundLayer.get_common_prefix(src_layer, dst_layer)
-        return self.__uplink_lists[src][len(src_layer) - len(common_prefix)]
+        prev_cl_node = cl_node
+        indexes = []
+        while prev_cl_node.level != prev_node.level:
+            indexes.append(prev_cl_node.data)
+            prev_cl_node = prev_cl_node.parent
+        indexes.reverse()
+        if indexes:
+            indexes[-1] += adjustment
+
+        top_node = None
+        if cl_node.level > inc_node.level:
+            top_node = self.__add_vertex(prev_node, indexes[0])
+            self.__fake_vertices.add(top_node.origin)
+            prev_node = top_node
+
+        for i in range(1, cl_node.level - inc_node.level):
+            prev_node = self.__add_vertex(prev_node, indexes[i])
+            self.__fake_vertices.add(prev_node.origin)
+
+        return prev_node, top_node
 
     def __normalize_graph(self):
-        edges = [item for item in self.__adj_graph.edges]
-        for src, dst, edge in edges: #recall there are no parent-child adjacency edges!
+        cl_common_ancestors = {}
+        for src, dst, edge in self.__adj_graph.edges:
+            src_cl_node = self.__compound_layer_tree_nodes[src]
+            dst_cl_node = self.__compound_layer_tree_nodes[dst]
+            key = (src_cl_node, dst_cl_node)
+            cl_common_ancestors[key] = self.__compound_layer_tree.get_least_common_ancestor(src_cl_node, dst_cl_node)
+        self.__compound_layer_tree.finished = False
+
+        for src, dst, edge in self.__adj_graph.edges: #recall there are no parent-child adjacency edges!
+            src_cl_node = self.__compound_layer_tree_nodes[src]
+            dst_cl_node = self.__compound_layer_tree_nodes[dst]
+
+            if src_cl_node.parent == dst_cl_node.parent and dst_cl_node.data - dst_cl_node.data == 1:
+                continue
+
             inverted = edge.inverted
             self.__adj_graph.remove_edge(src, dst)
-            common_ancestor = self.__get_common_ancestor(src, dst)
-            src_top, dst_top = src, dst
-            if self.__get_parent(src) != common_ancestor:
-                src_top, src_neighbour = self.__create_dummy_vertex_inc_chain(common_ancestor, src)
-                self.__compound_layer[src_neighbour][-1] += 1
-                self.__adj_graph.add_edge(src, src_neighbour, SpecEdge(inverted))
-            if self.__get_parent(dst) != common_ancestor:
-                dst_top, dst_neighbour = self.__create_dummy_vertex_inc_chain(common_ancestor, dst)
-                self.__compound_layer[dst_neighbour][-1] -= 1
-                self.__adj_graph.add_edge(dst_neighbour, dst, SpecEdge(inverted))
-            self.__create_dummy_vertex_adj_chain(src_top, dst_top, inverted)
+
+            src_node = self.__inc_tree_nodes[src]
+            dst_node = self.__inc_tree_nodes[dst]
+            src_top_node, dst_top_node = src_node, dst_node
+
+            common_ancestor = self.__inc_tree.get_least_common_ancestor(src_node, dst_node)
+            cl_common_ancestor = cl_common_ancestors[(src_cl_node, dst_cl_node)]
+            fake_common_ancestor = self.__create_fake_vertex_inc_chain(common_ancestor, cl_common_ancestor, 0)[0]
+
+            if src_cl_node.parent != cl_common_ancestor:
+                src_neighbour_node, src_top_node = self.__create_fake_vertex_inc_chain(fake_common_ancestor, src_cl_node, 1)
+                self.__adj_graph.add_edge(src_cl_node.origin, src_neighbour_node.origin, SpecEdge(inverted))
+            if dst_cl_node.paren != cl_common_ancestor:
+                dst_neighbour_node, dst_top_node = self.__create_fake_vertex_inc_chain(fake_common_ancestor, dst_cl_node, -1)
+                self.__adj_graph.add_edge(dst_neighbour_node.origin, dst_cl_node.origin, SpecEdge(inverted))
+            self.__create_fake_vertex_adj_chain(src_top_node, dst_top_node, inverted)
+
+        self.__compound_layer_tree.finished = True
 
     def __get_adj_difference(self, vertex):
-        return vertex.adj_left - vertex.adj_right
+        return self.__adj_left[vertex] - self.__adj_right[vertex]
 
-    def __split_into_levels(self, vertex):
-        local_vertices = [dst for dst, edge in self.__inc_graph.get_neighbours(vertex)]
+    def __split_into_levels(self, node):
+        local_vertices = [child.origin for index, child in self.__inc_tree_nodes[node].children]
 
         levels = {}
-        for vrtx in local_vertices:
-            levels.setdefault(self.__compound_layer[vrtx][-1], []).append(vrtx)
+        for vertex in local_vertices:
+            levels.setdefault(self.__compound_layer_tree_nodes[vertex].data, []).append(vertex)
 
         return [value for key, value in levels.items()]
 
     def __count_level_neighbours(self, level):
         for vertex in level:
+            self.__adj_left[vertex] = 0
+            self.__adj_right[vertex] = 0
             for dst, edge in self.__order_service_graph.get_neighbours(vertex):
-                vertex_parent = self.__get_parent(vertex)
-                dst_parent = self.__get_parent(dst)
-                if vertex_parent != dst_parent:
-                    if dst_parent.order_index < vertex_parent.order_index:
-                        vertex.adj_left += 1
+                vertex_parent_node = self.__inc_tree_nodes[vertex].parent
+                dst_parent_node = self.__inc_tree_nodes[dst].parent
+                if vertex_parent_node != dst_parent_node:
+                    if self.__order_index[dst] < self.__order_index[vertex]:
+                        self.__adj_left[vertex] += 1
                     else:
-                        vertex.adj_right += 1
+                        self.__adj_right[vertex] += 1
 
     def __minimize_closeness(self, level):
         splitted = {"left" : [], "middle" : [], "right" : []}
-        for vrtx in level:
-            if self.__get_adj_difference(vrtx) < 0:
-                splitted["left"].append(vrtx)
-            elif self.__get_adj_difference(vrtx) == 0:
-                splitted["middle"].append(vrtx)
+        for vertex in level:
+            if self.__get_adj_difference(vertex) < 0:
+                splitted["left"].append(vertex)
+            elif self.__get_adj_difference(vertex) == 0:
+                splitted["middle"].append(vertex)
             else:
-                splitted["right"].append(vrtx)
+                splitted["right"].append(vertex)
         return splitted
-
-    def __add_temp_dummy_vertex(self, src, dst, vertex):
-        self.__adj_graph.add_vertex(vertex)
-        self.__adj_graph_inverted.add_vertex(vertex)
-        self.__adj_graph.add_edge(src, vertex)
-        self.__adj_graph.add_edge(dst, vertex)
-        self.__adj_graph_inverted.add_edge(vertex, src)
-        self.__adj_graph_inverted.add_edge(vertex, dst)
 
     def __create_dummies(self, level):
         dummies = []
         for src in level:
             for dst in level:
                 if self.__order_service_graph.has_edge(src, dst):
-                    vertex = self.__create_mutable_vertex(False, 0, None, False, True)
-                    self.__add_temp_dummy_vertex(src, dst, vertex)
+                    vertex = Digraph.Vertex()
+                    self.__adj_graph.add_vertex(vertex)
+                    self.__adj_graph.add_edge(src, vertex)
+                    self.__adj_graph.add_edge(dst, vertex)
+                    self.__dummy_vertices.add(vertex)
                     dummies.append(vertex)
         return dummies
 
     def __compute_barycenter(self, src, level):
         mean = 0
         for dst in level:
-            if self.__adj_graph.has_edge(src, dst) or \
-               self.__adj_graph_inverted.has_edge(src, dst):
-                mean += dst.order_index
-        src.barycenter = mean / len(level)
+            if self.__adj_graph.has_edge(src, dst) or self.__adj_graph.has_edge(dst, src):
+                mean += self.__order_index[dst]
+        self.__barycenter[src] = mean // len(level)
 
     def __compute_barycenter2(self, src, level):
         mean = 0
         for dst in level:
-            if self.__adj_graph.has_edge(src, dst) or \
-               self.__adj_graph_inverted.has_edge(src, dst):
-                mean += dst.x
-        src.barycenter = mean / len(level)
+            if self.__adj_graph.has_edge(src, dst) or self.__adj_graph.has_edge(dst, src):
+                mean += self.__x[dst]
+        self.__barycenter[src] = mean // len(level)
 
     def __set_order_indexes(self, level):
-        for n, item in enumerate(sorted(level, key=(lambda x: x.barycenter))):
-            item.order_index = n
+        for index, vertex in enumerate(sorted(level, key=(lambda x: self.__barycenter[x]))):
+            self.__order_index[vertex] = index
 
     def __barycentric_order(self, level1, level2):
         for vertex1 in level1:
@@ -456,16 +390,14 @@ class CompoundGraphDrawer(object):
 
         return result
 
-    def __remove_dummy_vertex(self, vertex):
-        if vertex.temporary:
-            self.__adj_graph.remove_vertex(vertex)
-            self.__adj_graph_inverted.remove_vertex(vertex)
-            return False
-        return True
-
     def __remove_dummies(self, level):
-        level = list(filter(self.__remove_dummy_vertex, level))
-        return level
+        result = []
+        for vertex in level:
+            if vertex in self.__dummy_vertices:
+                self.__adj_graph.remove_vertex(vertex)
+            else:
+                result.append(vertex)
+        return result
 
     def __make_ordering_step(self, splitted, index, prev):
         dummies = self.__create_dummies(splitted[index]["middle"])
@@ -476,90 +408,69 @@ class CompoundGraphDrawer(object):
         self.__set_order_indexes(splitted[prev]["middle"])
         self.__set_order_indexes(splitted[index]["middle"])
 
-    def __order_local(self, vertex):
-        if not self.__inc_graph.has_neighbours(vertex):
+    def __order_local(self, node):
+        if not node.children:
             return
-        levels = self.__split_into_levels(vertex)
+
+        levels = self.__split_into_levels(node.origin)
         splitted = []
         for level in levels:
             self.__count_level_neighbours(level)
-            for n, vertex in enumerate(sorted(level, key=self.__get_adj_difference)):
-                vertex.order_index = n
+            for index, vertex in enumerate(sorted(level, key=self.__get_adj_difference)):
+                self.__order_index[vertex] = n
             splitted.append(self.__minimize_closeness(level))
-
-        for src, dst, edge in self.__adj_graph.edges:
-            if src.temporary or dst.temporary:
-                raise RuntimeError("Undeleted temporary vertex!")
 
         for i in range(self.__order_iterations):
             init_dummies = self.__create_dummies(splitted[0]["middle"])
             if len(init_dummies) > 0:
                 self.__barycentric_order(init_dummies, splitted[0]["middle"])
                 self.__remove_dummies(init_dummies)
-                for src, dst, edge in self.__adj_graph.edges:
-                    if src.temporary or dst.temporary:
-                        raise RuntimeError("Undeleted temporary vertex!")
 
             for j in range(1, len(splitted)):
                 self.__make_ordering_step(splitted, j, j - 1)
-                for src, dst, edge in self.__adj_graph.edges:
-                    if src.temporary or dst.temporary:
-                        raise RuntimeError("Undeleted temporary vertex!")
 
             init_dummies = self.__create_dummies(splitted[-1]["middle"])
             if len(init_dummies) > 0:
                 self.__barycentric_order(init_dummies, splitted[-1]["middle"])
                 self.__remove_dummies(init_dummies)
-                for src, dst, edge in self.__adj_graph.edges:
-                    if src.temporary or dst.temporary:
-                        raise RuntimeError("Undeleted temporary vertex!")
 
             for j in reversed(range(0, len(splitted) - 1)):
                 self.__make_ordering_step(splitted, j, j + 1)
-                for src, dst, edge in self.__adj_graph.edges:
-                    if src.temporary or dst.temporary:
-                        raise RuntimeError("Undeleted temporary vertex!")
 
         for i in range(0, len(splitted)):
-            for vertex in splitted[i]["middle"]:
-                vertex.order_index += len(splitted[i]["left"])
+            for node in splitted[i]["middle"]:
+                node.order_index += len(splitted[i]["left"])
 
-    def __order_global(self, vertex):
-        self.__order_local(vertex)
-        for child, edge in self.__inc_graph.get_neighbours(vertex):
+    def __order_global(self, node):
+        self.__order_local(node)
+        for index, child in node.children:
             self.__order_global(child)
 
     #TODO: count edges for pairs of vertices?
-    def __init_order_service_graph(self, src):
-        for dst, edge in self.__inc_graph.get_neighbours(src):
-            self.__init_order_service_graph(dst)
+    def __init_order_service_graph(self, node):
+        for index, child in node.children:
+            self.__init_order_service_graph(child)
 
-        for dst, edge in self.__adj_graph.get_neighbours(src):
-            parent_src = self.__get_parent(src)
-            parent_dst = self.__get_parent(dst)
-            if parent_src != parent_dst:
-                self.__order_service_graph.add_edge(parent_src, parent_dst)
-                self.__order_service_graph.add_edge(parent_dst, parent_src)
+        for dst, edge in self.__adj_graph.get_neighbours(node.origin):
+            src_parent_node = self.__inc_tree_nodes[src].parent
+            dst_parent_node = self.__inc_tree_nodes[dst].parent
+            if src_parent_node != dst_parent_node:
+                self.__order_service_graph.add_edge(src_parent_node, dst_parent_node)
+                self.__order_service_graph.add_edge(dst_parent_node, src_parent_node)
 
     def __determine_vertex_order(self):
         self.__order_service_graph = Digraph.Digraph()
-        self.__order_service_graph.add_vertices(self.__vertex_set)
-        self.__add_vertex.register_function(self.__order_service_graph.add_vertex)
-        self.__init_order_service_graph(self.__root_vertex)
-
-        self.__adj_graph_inverted = self.__create_inverted_graph(self.__adj_graph)
-        self.__add_vertex.register_function(self.__adj_graph_inverted.add_vertex)
+        self.__order_service_graph.add_vertices(self.__adj_graph.vertices)
+        self.__init_order_service_graph(self.__inc_tree.root)
 
         self.__ordered_graph = Digraph.Digraph()
-        self.__ordered_graph.add_vertices(self.__vertex_set)
-        self.__add_vertex.register_function(self.__ordered_graph.add_vertex())
-        self.__order_global(self.__root_vertex)
+        self.__ordered_graph.add_vertices(self.__adj_graph.vertices)
+        self.__order_global(self.__inc_tree.root)
 
     def __compute_connectivity(self, src, level):
         connectivity = 0
         for dst in level:
-            if self.__adj_graph.has_edge(src, dst) or \
-               self.__adj_graph_inverted.has_edge(src, dst):
+            if self.__adj_graph.has_edge(src, dst) or self.__adj_graph.has_edge(dst, src):
                 connectivity += 1
         return connectivity
 
@@ -567,13 +478,13 @@ class CompoundGraphDrawer(object):
         left_part = []
         rigth_part = []
         for vertex in level:
-            if vertex.x < top_vertex.x:
+            if self.__x[vertex] < self.__x[top_vertex]:
                 left_part.append(vertex)
             else:
                 rigth_part.append(vertex)
         return left_part, rigth_part
 
-    def __improve_local(self, level, left_bound, right_bound):
+    def __improve_positions_r(self, level, left_bound, right_bound):
         if len(level) == 0:
             return []
 
@@ -582,61 +493,61 @@ class CompoundGraphDrawer(object):
 
         left_part_width = 0
         if len(left_part) > 0:
-            left_part_width = max(vrtx.x + vrtx.width / 2 for vrtx in left_part) - \
-                              min(vrtx.x - vrtx.width / 2 for vrtx in left_part)
+            left_part_width = sum(self.__width[vertex] + self.__d2 for vertex in left_part) - self.__d2
         right_part_width = 0
         if len(right_part) > 0:
-            right_part_width = max(vrtx.x + vrtx.width / 2 for vrtx in right_part) - \
-                               min(vrtx.x - vrtx.width / 2 for vrtx in right_part)
+            right_part_width = sum(self.__width[vertex] + self.__d2 for vertex in right_part) - self.__d2
 
-        right_shift = min(right_bound - top_vertex.barycenter, right_bound - top_vertex.x - right_part_width) - top_vertex.width / 2
-        left_shift = min(top_vertex.barycenter - left_bound, top_vertex.x - left_bound - left_part_width) - top_vertex.width / 2
+        right_shift = min(self.__barycenter[top_vertex] - self.__x[top_vertex],
+                          right_bound - right_part_width - self.__x[top_vertex] - self.__width[top_vertex] / 2)
+        left_shift = min(self.__x[top_vertex] - self.__barycenter[top_vertex],
+                         self.__x[top_vertex] - self.__width[top_vertex] / 2 - left_part_width - left_bound)
 
         if right_shift > 0:
-            top_vertex.x = max(top_vertex.x + right_shift, top_vertex.x)
-            for n, vertex in enumerate(right_part):
-                new_x = top_vertex.x + n + 1 + right_shift
-                if new_x < vertex.x:
-                    break
-                vertex.x = new_x
+            self.__x[top_vertex] += right_shift
+            rightmost_x = self.__x[top_vertex] + self.__width[top_vertex] / 2
+            for vertex in right_part:
+                self.__x[vertex] = rightmost_x + self.__d2 + self.__width[vertex] / 2
+                rightmost_x += self.__width[vertex]
 
         if left_shift > 0:
-            top_vertex.x = min(top_vertex.x - right_shift, top_vertex.x)
-            for n, vertex in enumerate(left_part):
-                new_x = top_vertex.x - n - 1 - right_shift
-                if vertex.x < new_x:
-                    break
-                vertex.x = new_x
+            self.__x[top_vertex] -= left_shift
+            leftmost_x = self.__x[top_vertex] - self.__width[top_vertex] / 2
+            for vertex in right_part:
+                self.__x[vertex] = leftmost_x - self.__d2 - self.__width[vertex] / 2
+                leftmost_x -= self.__width[vertex]
 
-        return self.__improve_local(left_part, left_bound, top_vertex.x - self.__d2 / 2) + [top_vertex] + \
-               self.__improve_local(right_part, top_vertex.x + self.__d2 / 2, right_bound)
+        return self.__improve_positions_r(left_part, left_bound, self.__x[top_vertex] - self.__width[top_vertex] - self.__d2) \
+               + [top_vertex] + \
+               self.__improve_positions_r(right_part, self.__x[top_vertex] + self.__width[top_vertex] + self.__d2, right_bound)
 
     def __improve_positions(self, levels, index, prev):
-        sorted_level = list(sorted(levels[index], key=(lambda x: x.connectivity[prev - index])))
+        sorted_level = list(sorted(levels[index], key=(lambda x: self.__connectivity[prev - index][x])))
         for vertex in sorted_level:
             self.__compute_barycenter2(vertex, levels[prev])
-        return self.__improve_local(sorted_level, -sys.maxsize, sys.maxsize)
+        return self.__improve_positions_r(sorted_level, -sys.maxsize, sys.maxsize)
 
     def __prm_method(self, vertex):
-        if vertex.origin is None:
-            vertex.width = 0
+        if vertex in self.__dummy_vertices:
+            self.__width[vertex] = 0
             return
 
         levels = self.__split_into_levels(vertex) #maybe it's better to use global levels list
 
         for i in range(0, len(levels)):
-            levels[i] = list(sorted(levels[i], key=(lambda x: x.order_index)))
-            levels[i][0].x = levels[i][0].width / 2
+            levels[i] = list(sorted(levels[i], key=(lambda x: self.__order_index[x])))
+            self.__x[levels[i][0]] = self.__width[levels[i][0]] / 2
 
             for j in range(1, len(levels[i])):
-                levels[i][j].x = levels[i][j - 1].x + levels[i][j - 1].width / 2 + self.__d2 + levels[i][j].width / 2
+                self.__x[levels[i][j]] = self.__x[levels[i][j - 1]] + self.__width[levels[i][j - 1]] / 2 + self.__d2 + \
+                                         self.__width[levels[i][j]] / 2
 
             for j in range(0, len(levels[i])):
                 levels[i][j].connectivity = {}
                 if i > 0:
-                    levels[i][j].connectivity[-1] = self.__compute_connectivity(levels[i][j], levels[i - 1])
+                    self.__connectivity[-1][levels[i][j]] = self.__compute_connectivity(levels[i][j], levels[i - 1])
                 if i < len(levels) - 1:
-                    levels[i][j].connectivity[+1] = self.__compute_connectivity(levels[i][j], levels[i + 1])
+                    self.__connectivity[+1][levels[i][j]] = self.__compute_connectivity(levels[i][j], levels[i + 1])
 
         for i in range(1, len(levels)):
             levels[i] = self.__improve_positions(levels, i, i - 1)
@@ -646,11 +557,11 @@ class CompoundGraphDrawer(object):
             levels[i] = self.__improve_positions(levels, i, i - 1)
 
         vertices = list(sum(levels, []))
-        min_x = min(vrtx.x - vrtx.width / 2 for vrtx in vertices)
-        max_x = max(vrtx.x + vrtx.width / 2 for vrtx in vertices)
+        min_x = min(self.__x[vrtx] - self.__width[vrtx] / 2 for vrtx in vertices)
+        max_x = max(self.__x[vrtx] + self.__width[vrtx] / 2 for vrtx in vertices)
         for vrtx in vertices:
-            vrtx.x -= min_x - self.__d1
-        vertex.width = max_x - min_x + 2 * self.__d1
+            self.__x[vrtx] -= min_x - self.__d1
+        self.__width[vertex] = max_x - min_x + 2 * self.__d1
 
     def __set_local_x_coords(self, vertex):
         if not self.__inc_graph.has_neighbours(vertex):
@@ -665,31 +576,12 @@ class CompoundGraphDrawer(object):
 
         self.__prm_method(vertex)
 
-    def __add_to_vertex_set(self, vertex):
-        self.__vertex_set.add(vertex)
-
     def __prepare_graph(self, graph):
-        self.__vertex_set.clear()
-        for vertex in graph.vertices:
-            mutable_vertex = self.__create_mutable_vertex(False, 0, vertex, False)
-            self.__vertex_set.add(mutable_vertex)
-            self.__vertex_dict[vertex] = mutable_vertex
-
-        self.__inc_graph = Digraph.Digraph()
-        self.__inc_graph.add_vertices(self.__vertex_set)
-        self.__adj_graph = Digraph.Digraph()
-        self.__adj_graph.add_vertices(self.__vertex_set)
-
-        for src in graph.vertices:
-            for dst, edge in graph.get_inc_neighbours(src):
-                self.__inc_graph.add_edge(self.__vertex_dict[src], self.__vertex_dict[dst], SpecEdge())
-            for dst, edge in graph.get_adj_neighbours(src):
-                self.__adj_graph.add_edge(self.__vertex_dict[src], self.__vertex_dict[dst], SpecEdge())
-
-        self.__add_vertex.unregister_all()
-        self.__add_vertex.register_function(self.__add_to_vertex_set)
-        self.__add_vertex.register_function(self.__inc_graph.add_vertex)
-        self.__add_vertex.register_function(self.__adj_graph.add_vertex)
+        self.__inc_tree = Tree(digraph=graph.copy_inc_graph())
+        self.__inc_tree_nodes = {}
+        for node in self.__inc_tree.nodes:
+            self.__inc_tree_nodes[node.origin] = node
+        self.__adj_graph = graph.copy_adj_graph()
 
     def __restore_edge_directions(self):
         for src, dst, edge in self.__adj_graph.edges:

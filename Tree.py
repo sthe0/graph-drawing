@@ -47,10 +47,13 @@ class TreeNode(object):
     def get_level(self):
         return self.__level
 
+    def get_tree(self):
+        return self.__tree
+
     parent = property(get_parent)
     children = property(get_children)
     level = property(get_level)
-
+    tree = property(get_tree)
 
 class Tree(object):
     def __init__(self, root_data=None, digraph=None):
@@ -64,8 +67,9 @@ class Tree(object):
                 raise ValueError("Specified digraph is not a tree.")
             root = digraph.topological_sort()[0]
             self.__root = TreeNode(tree=self, parent=None, level=0, data=root.data)
+            self.__root.origin = root
             self.__init_from_digraph_r(self.__root, root, digraph)
-            self.set_finished()
+            self.set_finished(True)
         else:
             self.__root = TreeNode(tree=self, parent=None, level=0, data=root_data)
             self.__nodes = {self.__root}
@@ -73,6 +77,7 @@ class Tree(object):
     def __init_from_digraph_r(self, node, vertex, digraph):
         for index, (dst, edge) in enumerate(digraph.get_neighbours(vertex)):
             node[index] = dst.data
+            node[index].origin = dst
             self.__init_from_digraph_r(node[index], dst, digraph)
 
     def __finish_r(self, node):
@@ -84,11 +89,15 @@ class Tree(object):
         self.__tout[node] = self.__time
         self.__time += 1
 
-    def set_finished(self):
-        if self.__finished:
+    def set_finished(self, value):
+        if self.__finished and value:
+            return
+        if not value:
+            self.__finished = value
             return
         self.__time = 0
-        self.__uplinks[self.__root] = [self.__root]
+        self.__uplinks[] = {self.__root : [self.__root]}
+        self.__finish_r(self.__root)
         self.__finished = True
 
     def get_finished(self):
@@ -123,6 +132,14 @@ class Tree(object):
         else:
             return self.__uplinks[node1][node1.level - node2.level], node2
 
+    def get_child_ancestor(self, node1, node2):
+        if not self.is_ancestor_of(node1, node2):
+            raise ValueError("Second argument must be a descendant of first one.")
+
+        for index, child in node1.children:
+            if self.is_ancestor_of(child, node2):
+                return index, child
+
     def get_root(self):
         return self.__root
 
@@ -131,4 +148,4 @@ class Tree(object):
 
     root = property(get_root)
     nodes = property(get_nodes)
-    finished = property(get_finished)
+    finished = property(get_finished, set_finished)

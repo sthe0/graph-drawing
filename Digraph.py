@@ -51,12 +51,14 @@ class Digraph(object):
     def __init__(self):
         self.__vertices = set()
         self.__edges = OrderedDict()
+        self.__inverted_edges = OrderedDict()
 
     def add_vertex(self, vertex=Vertex()):
         if vertex in self.__vertices:
             return False
         self.__vertices.add(vertex)
         self.__edges[vertex] = {}
+        self.__inverted_edges[vertex] = {}
         return True
 
     def add_vertices(self, vertices):
@@ -64,36 +66,29 @@ class Digraph(object):
             return False
         self.__vertices.update(vertices)
         self.__edges.update({vertex: {} for vertex in vertices})
+        self.__inverted_edges.update({vertex: {} for vertex in vertices})
         return True
 
     def has_vertex(self, vertex):
         return vertex in self.__vertices
 
     def remove_vertex(self, vertex):
-        if not self.has_vertex(vertex):
-            return False
-        for src, dst, edge in self.edges:
-            if src == vertex or dst == vertex:
-                self.remove_edge(src, dst)
+        for dst in [dst for dst, edge in self.get_inverted_neighbours(vertex)]:
+            self.remove_edge(dst, vertex)
+        del self.__edges[vertex]
+        del self.__inverted_edges[vertex]
         self.__vertices.remove(vertex)
-        return True
 
     def add_edge(self, src, dst, edge=Edge()):
-        if not self.has_vertex(src) or not self.has_vertex(dst):
-            return False
         self.__edges[src][dst] = edge
-        return True
+        self.__inverted_edges[dst][src] = edge
 
     def has_edge(self, src, dst):
-        if not self.has_vertex(src) or not self.has_vertex(dst):
-            return False
         return dst in self.__edges[src]
 
     def remove_edge(self, src, dst):
-        if not self.has_edge(src, dst):
-            return False
         del self.__edges[src][dst]
-        return True
+        del self.__inverted_edges[dst][src]
 
     def get_edge(self, src, dst):
         if not self.has_edge(src, dst):
@@ -103,12 +98,20 @@ class Digraph(object):
     def has_neighbours(self, vertex):
         return len(self.__edges[vertex]) != 0
 
+    def has_inverted_neighbours(self, vertex):
+        return len(self.__inverted_edges[vertex]) != 0
+
     def get_neighbours(self, vertex):
         return self.__edges[vertex].items()
+
+    def get_inverted_neighbours(self, vertex):
+        return self.__inverted_edges[vertex].items()
 
     def invert_edge(self, src, dst):
         self.__edges[dst][src] = self.__edges[src][dst]
         del self.__edges[src][dst]
+        self.__inverted_edges[src][dst] = self.__inverted_edges[dst][src]
+        del self.__inverted_edges[dst][src]
 
     def get_vertices(self):
         return copy.copy(self.__vertices)
@@ -123,23 +126,18 @@ class Digraph(object):
 
         for src in graph.vertices:
             for dst, edge in graph.get_neighbours(src):
-                graph.add_edge(src, dst, copy.copy(edge))
+                graph.add_edge(src, dst, edge)
 
         return graph
 
     def copy_inverted(self):
         graph = self.copy()
-        inverted_edges = set()
-        for src in graph.vertices:
-            for dst, edge in graph.get_neighbours(src):
-                if graph.has_edge(src, dst) and edge not in inverted_edges:
-                    graph.invert_edge(src, dst)
-                    inverted_edges.add(graph.get_edge(dst, src))
-
+        graph.__edges, graph.__inverted_edges = graph.__inverted_edges, graph.__edges
         return graph
 
     def remove_all_edges(self):
-        self.__edges = OrderedDict()
+        self.__edges = OrderedDict({vertex: {} for vertex in self.__vertices})
+        self.__inverted_edges = OrderedDict({vertex: {} for vertex in self.__vertices})
 
     def __topological_sort_r(self, vertex, tmp_set, result):
         if tmp_set[vertex]:
