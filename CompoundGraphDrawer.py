@@ -70,7 +70,7 @@ class CompoundGraphDrawer(object):
     #empty declarations
     #just declare object private variables
     #show variables interrelations
-    def __init__(self, leaf_width=10, leaf_height = 10, d1=1, d2=1):
+    def __init__(self, leaf_width=4, leaf_height = 4, d1=2, d2=2):
         self._inc_tree = Tree()
         self._inc_tree_nodes = {}
         self._adj_graph = Digraph.Digraph()
@@ -331,7 +331,7 @@ class CompoundGraphDrawer(object):
                 vertex_parent_node = self._inc_tree_nodes[vertex].parent
                 dst_parent_node = self._inc_tree_nodes[dst].parent
                 if vertex_parent_node != dst_parent_node:
-                    if self._order_index[dst] < self._order_index[vertex]:
+                    if self._order_index[dst_parent_node.origin] < self._order_index[vertex_parent_node.origin]:
                         self._adj_left[vertex] += 1
                     else:
                         self._adj_right[vertex] += 1
@@ -352,9 +352,13 @@ class CompoundGraphDrawer(object):
 
     def _create_dummies(self, level):
         dummies = []
+        edges = set()
         for src in level:
             for dst in level:
                 if self._order_service_graph.has_edge(src, dst):
+                    if (dst, src) in edges:
+                        continue
+                    edges.add((src, dst))
                     vertex = Digraph.Vertex()
                     self._adj_graph.add_vertex(vertex)
                     self._adj_graph.add_edge(src, vertex)
@@ -366,17 +370,21 @@ class CompoundGraphDrawer(object):
 
     def _compute_barycenter(self, src, level):
         mean = 0
+        neighbours = 0
         for dst in level:
             if self._adj_graph.has_edge(src, dst) or self._adj_graph.has_edge(dst, src):
                 mean += self._order_index[dst]
-        self._barycenter[src] = mean // len(level)
+                neighbours += 1
+        self._barycenter[src] = mean / max(neighbours, 1)
 
     def _compute_barycenter2(self, src, level):
         mean = 0
+        neighbours = 0
         for dst in level:
             if self._adj_graph.has_edge(src, dst) or self._adj_graph.has_edge(dst, src):
                 mean += self._x[dst]
-        self._barycenter[src] = mean // len(level)
+                neighbours += 1
+        self._barycenter[src] = mean // max(neighbours, 1)
 
     def _set_order_indexes(self, level):
         for index, vertex in enumerate(sorted(level, key=(lambda x: self._barycenter[x]))):
@@ -405,6 +413,7 @@ class CompoundGraphDrawer(object):
             if vertex in self._dummy_vertices:
                 del self._order_index[vertex]
                 self._adj_graph.remove_vertex(vertex)
+                self._dummy_vertices.remove(vertex)
             else:
                 result.append(vertex)
         return result
@@ -435,6 +444,7 @@ class CompoundGraphDrawer(object):
             if len(init_dummies) > 0:
                 self._barycentric_order(init_dummies, splitted[0]["middle"])
                 self._remove_dummies(init_dummies)
+                self._set_order_indexes(splitted[0]["middle"])
 
             for j in range(1, len(splitted)):
                 self._make_ordering_step(splitted, j, j - 1)
@@ -443,6 +453,7 @@ class CompoundGraphDrawer(object):
             if len(init_dummies) > 0:
                 self._barycentric_order(init_dummies, splitted[-1]["middle"])
                 self._remove_dummies(init_dummies)
+                self._set_order_indexes(splitted[-1]["middle"])
 
             for j in reversed(range(0, len(splitted) - 1)):
                 self._make_ordering_step(splitted, j, j + 1)
@@ -462,6 +473,8 @@ class CompoundGraphDrawer(object):
             self.__init__order_service_graph(child)
 
         for dst, edge in self._adj_graph.get_neighbours(node.origin):
+            self._order_service_graph.add_edge(node.origin, dst)
+            self._order_service_graph.add_edge(dst, node.origin)
             src_parent_node = self._inc_tree_nodes[node.origin].parent
             dst_parent_node = self._inc_tree_nodes[dst].parent
             if src_parent_node != dst_parent_node:
@@ -542,11 +555,13 @@ class CompoundGraphDrawer(object):
         return self._improve_positions_r(sorted_level, -sys.maxsize, sys.maxsize)
 
     def _prm_method(self, vertex):
-        if not self._inc_tree_nodes[vertex].children:
-            if vertex in self._dummy_vertices:
-                self._width[vertex] = 0
-            else:
-                self._width[vertex] = self._leaf_width
+        if not self._inc_tree_nodes[vertex].children and vertex not in self._fake_vertices:
+            self._width[vertex] = self._leaf_width
+            return
+        if vertex in self._fake_vertices:
+            for index, child in self._inc_tree_nodes[vertex].children:
+                self._x[child.origin] = 0
+            self._width[vertex] = 0
             return
 
         levels = self._split_into_levels(vertex) #maybe it's better to use global levels list
@@ -639,8 +654,8 @@ class CompoundGraphDrawer(object):
 
                 for dst, edge in self._adj_graph.get_neighbours(vertex):
                     dst_cl_node = self._compound_layer_tree_nodes[dst]
-                    dst_x = self._x[dst]
-                    dst_y = self._y[dst_cl_node]
+                    dst_x = min_x + self._x[dst]
+                    dst_y = min_y + self._y[dst_cl_node]
                     dst_width = self._width[dst]
                     dst_height = self._height[dst_cl_node]
                     self._drawer.draw_edge(x, y, width, height,

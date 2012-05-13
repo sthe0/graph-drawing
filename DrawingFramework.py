@@ -67,7 +67,7 @@ class DrawingFramework(object):
             dst_y = y2 - height2 / 2
         else:
             src_y = y1 - height1 / 2
-            dst_y = y2 + height2  /2
+            dst_y = y2 + height2 / 2
         self.__canvas.create_line(x1, src_y, x2, dst_y, self.__edge_parameters)
 
         if type == EdgeType.ToReal:
