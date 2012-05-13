@@ -4,51 +4,50 @@ import copy
 
 class TreeNode(object):
     def __init__(self, tree, parent=None, data=None, level=0):
-        self.__tree = tree
-        self.__parent = parent
-        self.__level = level
-        self.__children = {}
+        self._tree = tree
+        self._parent = parent
+        self._level = level
+        self._children = {}
         self.data = data
 
     def get_child(self, index):
-        return self.__children[index]
+        return self._children[index]
 
     def add_child(self, index, data=None):
-        if self.__tree.finished:
+        if self._tree.finished:
             raise RuntimeError("Adding vertex to a finished tree.")
 
-        if index in self.__children:
-            return self.__children[index], False
+        if index in self._children:
+            return self._children[index], False
 
-        self.__children[index] = TreeNode(tree=self.__tree, data=data, level=self.__level + 1, parent=self)
-        return self.__children[index], True
+        self._children[index] = TreeNode(tree=self._tree, data=data, level=self._level + 1, parent=self)
+        self._tree._nodes.add(self._children[index])
+        return self._children[index], True
 
     def remove_child(self, index):
-        if self.__tree.finished:
+        if self._tree.finished:
             raise RuntimeError("Removing vertex from a finished tree.")
 
-        del self.__children[index]
+        self._tree._nodes.remove(self._children[index])
+        del self._children[index]
 
     def __getitem__(self, index):
         return self.get_child(index)
-
-    def __setitem__(self, index, data):
-        return self.add_child(index, data)
 
     def __delitem__(self, index):
         self.remove_child(index)
 
     def get_parent(self):
-        return self.__parent
+        return self._parent
 
     def get_children(self):
-        return copy.copy(self.__children.items())
+        return self._children.items()
 
     def get_level(self):
-        return self.__level
+        return self._level
 
     def get_tree(self):
-        return self.__tree
+        return self._tree
 
     parent = property(get_parent)
     children = property(get_children)
@@ -57,94 +56,95 @@ class TreeNode(object):
 
 class Tree(object):
     def __init__(self, root_data=None, digraph=None):
-        self.__finished = False
-        self.__tin = {}
-        self.__tout = {}
-        self.__uplinks = {}
-        self.__time = 0
+        self._finished = False
+        self._tin = {}
+        self._tout = {}
+        self._uplinks = {}
+        self._time = 0
         if digraph is not None:
             if not digraph.is_tree():
                 raise ValueError("Specified digraph is not a tree.")
             root = digraph.topological_sort()[0]
-            self.__root = TreeNode(tree=self, parent=None, level=0, data=root.data)
-            self.__root.origin = root
-            self.__init_from_digraph_r(self.__root, root, digraph)
+            self._root = TreeNode(tree=self, parent=None, level=0, data=None)
+            self._root.origin = root
+            self._nodes = {self._root}
+            self._init_from_digraph_r(self._root, root, digraph)
             self.set_finished(True)
         else:
-            self.__root = TreeNode(tree=self, parent=None, level=0, data=root_data)
-            self.__nodes = {self.__root}
+            self._root = TreeNode(tree=self, parent=None, level=0, data=root_data)
+            self._nodes = {self._root}
 
-    def __init_from_digraph_r(self, node, vertex, digraph):
+    def _init_from_digraph_r(self, node, vertex, digraph):
         for index, (dst, edge) in enumerate(digraph.get_neighbours(vertex)):
-            node[index] = dst.data
+            node.add_child(index)
             node[index].origin = dst
-            self.__init_from_digraph_r(node[index], dst, digraph)
+            self._init_from_digraph_r(node[index], dst, digraph)
 
-    def __finish_r(self, node):
-        self.__tin[node] = self.__time
-        self.__time += 1
+    def _finish_r(self, node):
+        self._tin[node] = self._time
+        self._time += 1
         for index, child in node.children:
-            self.__uplinks[child] = [child] + self.__uplinks[node]
-            self.__finish_r(child)
-        self.__tout[node] = self.__time
-        self.__time += 1
+            self._uplinks[child] = [child] + self._uplinks[node]
+            self._finish_r(child)
+        self._tout[node] = self._time
+        self._time += 1
 
     def set_finished(self, value):
-        if self.__finished and value:
+        if self._finished and value:
             return
         if not value:
-            self.__finished = value
+            self._finished = value
             return
-        self.__time = 0
-        self.__uplinks[] = {self.__root : [self.__root]}
-        self.__finish_r(self.__root)
-        self.__finished = True
+        self._time = 0
+        self._uplinks = {self._root : [self._root]}
+        self._finish_r(self._root)
+        self._finished = True
 
     def get_finished(self):
-        return self.__finished
+        return self._finished
 
     def is_ancestor_of(self, node1, node2):
-        if not self.__finished:
+        if not self._finished:
             raise RuntimeError("Query on an unfinished tree.")
-        return self.__tin[node1] < self.__tin[node2] and self.__tout[node2] < self.__tout[node1]
+        return self._tin[node1] < self._tin[node2] and self._tout[node2] < self._tout[node1]
 
     def is_descendant_of(self, node1, node2):
-        if not self.__finished:
+        if not self._finished:
             raise RuntimeError("Query on an unfinished tree.")
-        return self.__tin[node1] > self.__tin[node2] and self.__tout[node2] > self.__tout[node1]
+        return self._tin[node1] > self._tin[node2] and self._tout[node2] > self._tout[node1]
 
     def get_least_common_ancestor(self, node1, node2):
-        if not self.__finished:
+        if not self._finished:
             raise RuntimeError("Query on an unfinished tree.")
 
-        l, r = 0, len(self.__uplinks[node2]) - 1
+        l, r = 0, len(self._uplinks[node2]) - 1
         while l < r:
             m = (l + r) // 2
-            if self.is_ancestor_of(self.__uplinks[node2][m], node1):
+            if self.is_ancestor_of(self._uplinks[node2][m], node1):
                 r = m
             else:
                 l = m + 1
-        return self.__uplinks[node2][l]
+        return self._uplinks[node2][l]
 
     def get_same_level_vertices(self, node1, node2):
         if node1.level < node2.level:
-            return node1, self.__uplinks[node2][node2.level - node1.level]
+            return node1, self._uplinks[node2][node2.level - node1.level]
         else:
-            return self.__uplinks[node1][node1.level - node2.level], node2
+            return self._uplinks[node1][node1.level - node2.level], node2
 
     def get_child_ancestor(self, node1, node2):
         if not self.is_ancestor_of(node1, node2):
             raise ValueError("Second argument must be a descendant of first one.")
 
         for index, child in node1.children:
-            if self.is_ancestor_of(child, node2):
+            if self.is_ancestor_of(child, node2) or child == node2:
                 return index, child
 
     def get_root(self):
-        return self.__root
+        return self._root
 
     def get_nodes(self):
-        return copy.copy(self.__nodes)
+        return copy.copy(self._nodes)
 
     root = property(get_root)
     nodes = property(get_nodes)

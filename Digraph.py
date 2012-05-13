@@ -19,6 +19,9 @@ class ObjectWithId(object):
     def __eq__(self, other):
         return self.__id == other.__id
 
+    def __repr__(self):
+        return str(self.__id)
+
     id = property(get_id)
 
 
@@ -53,7 +56,9 @@ class Digraph(object):
         self.__edges = OrderedDict()
         self.__inverted_edges = OrderedDict()
 
-    def add_vertex(self, vertex=Vertex()):
+    def add_vertex(self, vertex=None):
+        if vertex is None:
+            vertex = Vertex()
         if vertex in self.__vertices:
             return False
         self.__vertices.add(vertex)
@@ -79,7 +84,9 @@ class Digraph(object):
         del self.__inverted_edges[vertex]
         self.__vertices.remove(vertex)
 
-    def add_edge(self, src, dst, edge=Edge()):
+    def add_edge(self, src, dst, edge=None):
+        if edge is None:
+            edge = Edge()
         self.__edges[src][dst] = edge
         self.__inverted_edges[dst][src] = edge
 
@@ -121,11 +128,10 @@ class Digraph(object):
 
     def copy(self):
         graph = Digraph()
-        for vertex in self.__vertices:
-            graph.add_vertex(vertex)
+        graph.add_vertices(self.__vertices)
 
-        for src in graph.vertices:
-            for dst, edge in graph.get_neighbours(src):
+        for src in self.__vertices:
+            for dst, edge in self.get_neighbours(src):
                 graph.add_edge(src, dst, edge)
 
         return graph

@@ -11,8 +11,8 @@ class EdgeType(object):
 class DrawingFramework(object):
     def __init__(self):
         self.__canvas_parameters = {"background" : "White",
-                                    "width" : 700,
-                                    "height" : 700}
+                                    "width" : 600,
+                                    "height" : 600}
         self.__vertex_parameters = {"fill" : "White",
                                     "width" : 1,
                                     "outline" : "Black"}
