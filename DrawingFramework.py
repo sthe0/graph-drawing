@@ -51,10 +51,10 @@ class DrawingFramework(object):
         self.__initialized = True
 
     def draw_vertex(self, x, y, width, height):
-        x *= 10
-        y *= 10
-        width *= 10
-        height *= 10
+        #x *= 10
+        #y *= 10
+        #width *= 10
+        #height *= 10
         coordinates = (x - width / 2, y - height / 2, x + width / 2, y + height / 2)
         self.__canvas.create_rectangle(coordinates, self.__vertex_parameters)
 
