@@ -2,9 +2,8 @@
 # -*- coding: utf-8 -*-
 import sys
 import Digraph
-import CompoundDigraph
 import DrawingFramework
-from copy import copy
+from itertools import chain
 from Tree import Tree
 
 class Relation:
@@ -70,7 +69,7 @@ class CompoundGraphDrawer(object):
     #empty declarations
     #just declare object private variables
     #show variables interrelations
-    def __init__(self, leaf_width=40, leaf_height=40, d1=10, d2=20):
+    def __init__(self, leaf_width=30, leaf_height=12, padding=5, header_height=15, margin=12):
         self._inc_tree = Tree()
         self._inc_tree_nodes = {}
         self._adj_graph = Digraph.Digraph()
@@ -94,8 +93,9 @@ class CompoundGraphDrawer(object):
         self._leaf_height = leaf_height
         self._left_top_x = 1
         self._left_top_y = 1
-        self._d1 = d1
-        self._d2 = d2
+        self._header_height = header_height
+        self._padding = padding
+        self._margin = margin
         self._drawer = DrawingFramework.DrawingFramework()
 
     def _compare_compound_layers(self, node1, node2):
@@ -129,16 +129,16 @@ class CompoundGraphDrawer(object):
         return graph
 
     def _make_acyclic(self, induced_graph):
-        ordered_vertices = {vertex: index for index, vertex in enumerate(
-                                sorted(induced_graph.vertices,
-                                       key=(lambda x: len(induced_graph.get_neighbours(x)))))}
-        for src in induced_graph.vertices:
+        vertices = induced_graph.topological_sort()
+        vertices.sort(key=(lambda x : len(induced_graph.get_neighbours(x))), reverse=True)
+        vertex_indexes = {vertex : index for index, vertex in enumerate(vertices)}
+        for src in vertices:
             for dst, edge in induced_graph.get_neighbours(src):
-                if ordered_vertices[src] < ordered_vertices[dst]:
+                if vertex_indexes[src] > vertex_indexes[dst]:
                     self._relation_graph.invert_edge(src, dst)
 
     def _derive_all_relations(self, node_set):
-        if len(node_set) == 0:
+        if not node_set:
             return
 
         children = set()
@@ -154,7 +154,9 @@ class CompoundGraphDrawer(object):
                     dst_parent_node = dst_node.parent
                     if src_parent_node != dst_parent_node and \
                        not self._relation_graph.has_edge(src_parent_node.origin, dst_parent_node.origin):
-                        self._relation_graph.add_edge(src_parent_node, dst_parent_node, RelationEdge(Relation.LE))
+                        self._relation_graph.add_edge(src_parent_node.origin,
+                                                      dst_parent_node.origin,
+                                                      RelationEdge(Relation.LE))
 
         self._make_acyclic(self._induce_graph(node_set))
 
@@ -222,6 +224,7 @@ class CompoundGraphDrawer(object):
         self._inc_tree_nodes[vertex] = node
 
         cl_node = self._compound_layer_tree_nodes[parent_node.origin].add_child(cl_index)[0]
+        cl_node.data = cl_index
         self._compound_layer_tree_nodes[vertex] = cl_node
 
         return node
@@ -510,10 +513,10 @@ class CompoundGraphDrawer(object):
 
         left_part_width = 0
         if len(left_part) > 0:
-            left_part_width = sum(self._width[vertex] + self._d2 for vertex in left_part)
+            left_part_width = sum(self._width[vertex] + self._margin for vertex in left_part)
         right_part_width = 0
         if len(right_part) > 0:
-            right_part_width = sum(self._d2 + self._width[vertex] for vertex in right_part)
+            right_part_width = sum(self._margin + self._width[vertex] for vertex in right_part)
 
         right_shift = min(self._barycenter[top_vertex] - self._x[top_vertex],
                           right_bound - right_part_width - self._x[top_vertex] - self._half(self._width[top_vertex]))
@@ -524,23 +527,23 @@ class CompoundGraphDrawer(object):
             self._x[top_vertex] += right_shift
             rightmost_x = self._x[top_vertex] + self._half(self._width[top_vertex])
             for vertex in right_part:
-                self._x[vertex] = rightmost_x + self._d2 + self._half(self._width[vertex])
-                rightmost_x += self._d2 + self._width[vertex]
+                self._x[vertex] = rightmost_x + self._margin + self._half(self._width[vertex])
+                rightmost_x += self._margin + self._width[vertex]
 
         if left_shift > 0:
             self._x[top_vertex] -= left_shift
             leftmost_x = self._x[top_vertex] - self._half(self._width[top_vertex])
             for vertex in reversed(left_part):
-                self._x[vertex] = leftmost_x - self._d2 - self._half(self._width[vertex])
-                leftmost_x -= self._d2 + self._width[vertex]
+                self._x[vertex] = leftmost_x - self._margin - self._half(self._width[vertex])
+                leftmost_x -= self._margin + self._width[vertex]
 
         return self._improve_positions_r(left_part,
                                          left_bound,
-                                         self._x[top_vertex] - self._half(self._width[top_vertex]) - self._d2,
+                                         self._x[top_vertex] - self._half(self._width[top_vertex]) - self._margin,
                                          direction) \
                + [top_vertex] + \
                self._improve_positions_r(right_part,
-                                         self._x[top_vertex] + self._half(self._width[top_vertex]) + self._d2,
+                                         self._x[top_vertex] + self._half(self._width[top_vertex]) + self._margin,
                                          right_bound,
                                          direction)
 
@@ -567,7 +570,7 @@ class CompoundGraphDrawer(object):
 
             for j in range(1, len(levels[i])):
                 self._x[levels[i][j]] = self._x[levels[i][j - 1]] + self._half(self._width[levels[i][j - 1]]) + \
-                                        self._d2 + self._half(self._width[levels[i][j]])
+                                        self._margin + self._half(self._width[levels[i][j]])
 
             for j in range(0, len(levels[i])):
                 self._connectivity[levels[i][j]] = {}
@@ -587,8 +590,8 @@ class CompoundGraphDrawer(object):
         min_x = min(self._x[vrtx] - self._half(self._width[vrtx]) for vrtx in vertices)
         max_x = max(self._x[vrtx] + self._half(self._width[vrtx]) for vrtx in vertices)
         for vertex_ in vertices:
-            self._x[vertex_] -= min_x - self._d1
-        self._width[vertex] = max_x - min_x + 2 * self._d1
+            self._x[vertex_] -= min_x - self._padding
+        self._width[vertex] = max_x - min_x + 2 * self._padding
 
     def _set_local_x_coordinates(self, node):
         for index, child in node.children:
@@ -611,20 +614,30 @@ class CompoundGraphDrawer(object):
             if edge in self._inverted_edges:
                 self._adj_graph.invert_edge(src, dst)
 
+    def _set_fake_compound_layer_nodes(self):
+        for node in self._compound_layer_tree.nodes:
+            node.fake = True
+        for vertex in self._adj_graph.vertices:
+            if vertex not in self._fake_vertices:
+                self._compound_layer_tree_nodes[vertex].fake = False
+
     def _set_y_coordinates(self, cl_node, min_y):
         if not cl_node.children:
-            self._height[cl_node] = self._leaf_height
+            if not cl_node.fake:
+                self._height[cl_node] = self._leaf_height + self._header_height
+            else:
+                self._height[cl_node] = 0
             return
 
-        min_y += self._d1
-        max_y = min_y - self._d2
+        min_y += self._padding
+        max_y = min_y - self._margin + self._header_height
 
         for index, cl_child in sorted(cl_node.children, key=(lambda pair: pair[0])):
-            self._set_y_coordinates(cl_child, max_y + self._d2)
-            self._y[cl_child] = max_y + self._d2 + self._half(self._height[cl_child])
-            max_y += self._d2 + self._height[cl_child]
+            self._set_y_coordinates(cl_child, max_y + self._margin)
+            self._y[cl_child] = max_y + self._margin + self._half(self._height[cl_child])
+            max_y += self._margin + self._height[cl_child]
 
-        self._height[cl_node] = max_y - min_y + 2 * self._d1
+        self._height[cl_node] = max_y - min_y + 2 * self._padding
 
     def _get_type(self, vertex):
         if vertex in self._fake_vertices:
@@ -642,9 +655,45 @@ class CompoundGraphDrawer(object):
                 self._height[vertex] = self._height[self._compound_layer_tree_nodes[vertex]]
                 self._set_coordinates(vertex_node, self._x[vertex] - self._half(self._width[vertex]))
 
+    def _determine_bounds(self, node):
+        min_y = sys.maxsize
+        max_y = -sys.maxsize
+
+        for index, child in node.children:
+            child_min_y, child_max_y = self._determine_bounds(child)
+            min_y = min(min_y, child_min_y)
+            max_y = max(max_y, child_max_y)
+
+        src = node.origin
+        for dst, neighbour in chain(self._adj_graph.get_neighbours(src), self._adj_graph.get_inverted_neighbours(src)):
+            src_cl_node = self._compound_layer_tree_nodes[src]
+            dst_cl_node = self._compound_layer_tree_nodes[dst]
+            if dst_cl_node.data < src_cl_node.data:
+                min_y = min(min_y, self._y[src] - self._height[src] / 2)
+            elif dst_cl_node.data > src_cl_node.data:
+                max_y = max(max_y, self._y[src] + self._height[src] / 2)
+
+        return min_y, max_y
+
+    def _layout_fake_vertex(self, vertex):
+        node = self._inc_tree_nodes[vertex]
+        if node.parent.origin in self._fake_vertices:
+            return
+
+        min_y, max_y = self._determine_bounds(node)
+        self._drawer.draw_fake_vertex(self._x[vertex], min_y, max_y)
+
     def _layout_vertices(self):
         for vertex in self._adj_graph.vertices:
-            self._drawer.draw_vertex(self._x[vertex], self._y[vertex], self._width[vertex], self._height[vertex])
+            if vertex in self._fake_vertices:
+                self._layout_fake_vertex(vertex)
+            else:
+                self._drawer.draw_vertex(self._x[vertex],
+                                         self._y[vertex],
+                                         self._width[vertex],
+                                         self._height[vertex],
+                                         self._header_height,
+                                         str(vertex.id))
 
     def _layout_edges(self):
         for src, dst, edge in self._adj_graph.edges:
@@ -663,6 +712,7 @@ class CompoundGraphDrawer(object):
         self._determine_vertex_order()
         self._restore_edge_directions()
         self._set_local_x_coordinates(self._inc_tree.root)
+        self._set_fake_compound_layer_nodes()
         self._set_y_coordinates(self._compound_layer_tree.root, min_x)
         self._set_coordinates(self._inc_tree.root, min_y)
         self._x[self._inc_tree.root.origin] = self._half(self._width[self._inc_tree.root.origin]) + min_x
