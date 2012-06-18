@@ -5,6 +5,7 @@ import Digraph
 import DrawingFramework
 from itertools import chain
 from Tree import Tree
+from RMQTree import RMQTree
 
 class Relation:
     LT = 0
@@ -25,51 +26,13 @@ class RelationEdge(Digraph.Edge):
     relation = property(get_relation)
 
 
-class CompoundLayer(list):
-    def __init__(self):
-        super(CompoundLayer, self).__init__()
-
-    def cmp(self, other):
-        for i in range(min(len(self), len(other))):
-            if self[i] < other[i]:
-                return -1
-            elif self[i] > other[i]:
-                return 1
-        return len(other) - len(self)
-
-    def _le_(self, other):
-        return self.cmp(other) <= 0
-
-    def _lt_(self, other):
-        return self.cmp(other) < 0
-
-    def _ge_(self, other):
-        return self.cmp(other) >= 0
-
-    def _gt_(self, other):
-        return self.cmp(other) > 0
-
-    def _eq_(self, other):
-        return self.cmp(other) == 0
-
-    @classmethod
-    def get_common_prefix(cls, layer1, layer2):
-        prefix = []
-        for i in range(min(len(layer1), len(layer2))):
-            if layer1[i] == layer2[i]:
-                prefix.append(layer1[i])
-            else:
-                break
-        return prefix
-
-
 class CompoundGraphDrawer(object):
     _order_iterations = 10
 
     #empty declarations
     #just declare object private variables
     #show variables interrelations
-    def __init__(self, leaf_width=30, leaf_height=12, padding=5, header_height=15, margin=12):
+    def __init__(self, leaf_width=50, leaf_height=22, padding=5, header_height=15, margin=12):
         self._inc_tree = Tree()
         self._inc_tree_nodes = {}
         self._adj_graph = Digraph.Digraph()
@@ -166,6 +129,7 @@ class CompoundGraphDrawer(object):
         self._derive_strict_relations(self._inc_tree.root)
         self._derive_all_relations(set(child for index, child in self._inc_tree.root.children))
 
+	#TODO: Traverse vertices in the order of topological sort.
     def _assign_compound_layers_r(self, vertex_set):
         if len(vertex_set) == 0:
             return
@@ -395,6 +359,7 @@ class CompoundGraphDrawer(object):
         for vertex2 in level2:
             self._compute_barycenter(vertex2, level1)
 
+	#TODO: compute barycenters for _sum_ of lists?
     def _merge_lists(self, list1, list2, base_list):
         for vertex1 in list1:
             self._compute_barycenter(vertex1, base_list)
@@ -504,19 +469,20 @@ class CompoundGraphDrawer(object):
                 rigth_part.append(vertex)
         return left_part, rigth_part
 
-    def _improve_positions_r(self, level, left_bound, right_bound, direction):
-        if len(level) == 0:
-            return []
+	#TODO: get top_vertex according to both connectivity and the index of vertices
+    def _improve_positions_r(self, level, rmqtree, l, r, left_bound, right_bound):
+        if l > r:
+            return
 
-        top_vertex = max(level, key=(lambda x: self._connectivity[x][direction]))
-        left_part, right_part = self._split_level(level, top_vertex)
+        priority, index = rmqtree.rmax(l, r)
+        top_vertex = level[index]
 
         left_part_width = 0
-        if len(left_part) > 0:
-            left_part_width = sum(self._width[vertex] + self._margin for vertex in left_part)
+        if l < index:
+            left_part_width = sum(self._width[vertex] + self._margin for vertex in level[l:index])
         right_part_width = 0
-        if len(right_part) > 0:
-            right_part_width = sum(self._margin + self._width[vertex] for vertex in right_part)
+        if r > index:
+            right_part_width = sum(self._margin + self._width[vertex] for vertex in level[index+1:r+1])
 
         right_shift = min(self._barycenter[top_vertex] - self._x[top_vertex],
                           right_bound - right_part_width - self._x[top_vertex] - self._half(self._width[top_vertex]))
@@ -525,33 +491,32 @@ class CompoundGraphDrawer(object):
 
         if right_shift > 0:
             self._x[top_vertex] += right_shift
-            rightmost_x = self._x[top_vertex] + self._half(self._width[top_vertex])
-            for vertex in right_part:
-                self._x[vertex] = rightmost_x + self._margin + self._half(self._width[vertex])
-                rightmost_x += self._margin + self._width[vertex]
 
         if left_shift > 0:
             self._x[top_vertex] -= left_shift
-            leftmost_x = self._x[top_vertex] - self._half(self._width[top_vertex])
-            for vertex in reversed(left_part):
-                self._x[vertex] = leftmost_x - self._margin - self._half(self._width[vertex])
-                leftmost_x -= self._margin + self._width[vertex]
 
-        return self._improve_positions_r(left_part,
-                                         left_bound,
-                                         self._x[top_vertex] - self._half(self._width[top_vertex]) - self._margin,
-                                         direction) \
-               + [top_vertex] + \
-               self._improve_positions_r(right_part,
-                                         self._x[top_vertex] + self._half(self._width[top_vertex]) + self._margin,
-                                         right_bound,
-                                         direction)
+        self._improve_positions_r(level,
+                                  rmqtree,
+                                  l,
+                                  index - 1,
+                                  left_bound,
+                                  self._x[top_vertex] - self._half(self._width[top_vertex]) - self._margin)
+        self._improve_positions_r(level,
+                                  rmqtree,
+                                  index+1,
+                                  r,
+                                  self._x[top_vertex] + self._half(self._width[top_vertex]) + self._margin,
+                                  right_bound)
 
     def _improve_positions(self, levels, index, prev):
-        for vertex in levels[index]:
+        priorities = []
+        for n, vertex in enumerate(levels[index]):
             self._compute_barycenter2(vertex, levels[prev])
-        return self._improve_positions_r(levels[index], -sys.maxsize, sys.maxsize, prev - index)
+            priorities.append((self._connectivity[vertex][prev - index], n))
+        rmqtree = RMQTree(priorities)
+        return self._improve_positions_r(levels[index], rmqtree, 0, len(levels[index]) - 1, -sys.maxsize, sys.maxsize)
 
+	#TODO: set highes connectivity value to dummy vertices
     def _prm_method(self, vertex):
         if not self._inc_tree_nodes[vertex].children and vertex not in self._fake_vertices:
             self._width[vertex] = self._leaf_width
@@ -580,11 +545,11 @@ class CompoundGraphDrawer(object):
                     self._connectivity[levels[i][j]][+1] = self._compute_connectivity(levels[i][j], levels[i + 1])
 
         for i in range(1, len(levels)):
-            levels[i] = self._improve_positions(levels, i, i - 1)
+            self._improve_positions(levels, i, i - 1)
         for i in reversed(range(0, len(levels) - 1)):
-            levels[i] = self._improve_positions(levels, i, i + 1)
+            self._improve_positions(levels, i, i + 1)
         for i in range(1, len(levels)):
-            levels[i] = self._improve_positions(levels, i, i - 1)
+            self._improve_positions(levels, i, i - 1)
 
         vertices = list(sum(levels, []))
         min_x = min(self._x[vrtx] - self._half(self._width[vrtx]) for vrtx in vertices)
