@@ -298,7 +298,8 @@ class CompoundGraphDrawer(object):
     def _count_neighbours(self, vertex):
         self._adj_left[vertex] = 0
         self._adj_right[vertex] = 0
-        for dst, edge in self._order_service_graph.get_neighbours(vertex):
+        for dst, edge in chain(self._order_service_graph.get_neighbours(vertex),
+                               self._order_service_graph.get_inverted_neighbours(vertex)):
             vertex_parent_node = self._inc_tree_nodes[vertex].parent
             dst_parent_node = self._inc_tree_nodes[dst].parent
             if vertex_parent_node != dst_parent_node:
@@ -317,14 +318,18 @@ class CompoundGraphDrawer(object):
                 splitted["middle"].append(vertex)
             else:
                 splitted["right"].append(vertex)
+        splitted["left"].sort(key=(lambda x: self._get_adj_difference(x)))
+        splitted["right"].sort(key=(lambda x: self._get_adj_difference(x)))
         return splitted
 
     def _create_dummies(self, level):
         dummies = []
         edges = set()
+        vertex_set = set(level)
         for src in level:
-            for dst in level:
-                if self._order_service_graph.has_edge(src, dst):
+            for dst, edge in chain(self._order_service_graph.get_neighbours(src),
+                                   self._order_service_graph.get_inverted_neighbours(src)):
+                if dst in vertex_set:
                     if (dst, src) in edges:
                         continue
                     edges.add((src, dst))
@@ -420,23 +425,23 @@ class CompoundGraphDrawer(object):
         for index, child in node.children:
             self._order_global(child)
 
-    def __init__order_service_graph(self, node):
+    def _init_order_service_graph(self, node):
         for index, child in node.children:
-            self.__init__order_service_graph(child)
+            self._init_order_service_graph(child)
 
-        for dst, edge in self._adj_graph.get_neighbours(node.origin):
+        for dst, edge in chain(self._adj_graph.get_neighbours(node.origin),
+                               self._order_service_graph.get_neighbours(node.origin)):
             self._order_service_graph.add_edge(node.origin, dst)
             self._order_service_graph.add_edge(dst, node.origin)
             src_parent_node = self._inc_tree_nodes[node.origin].parent
             dst_parent_node = self._inc_tree_nodes[dst].parent
             if src_parent_node != dst_parent_node:
                 self._order_service_graph.add_edge(src_parent_node.origin, dst_parent_node.origin)
-                self._order_service_graph.add_edge(dst_parent_node.origin, src_parent_node.origin)
 
     def _determine_vertex_order(self):
         self._order_service_graph = Digraph.Digraph()
         self._order_service_graph.add_vertices(self._adj_graph.vertices)
-        self.__init__order_service_graph(self._inc_tree.root)
+        self._init_order_service_graph(self._inc_tree.root)
 
         self._ordered_graph = Digraph.Digraph()
         self._ordered_graph.add_vertices(self._adj_graph.vertices)
