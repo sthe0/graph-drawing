@@ -8,16 +8,21 @@ class RSQTree(object):
         self._build_sum(tsum, 1, 0, self._n - 1)
 
     def _build_sum(self, tsum, v, tl, tr):
-        if tl == tr:
-            self._sum_buf[v] = tsum[tl]
-        else:
-            tm = (tl + tr) // 2
-            self._build_sum(tsum, 2*v, tl, tm)
-            self._build_sum(tsum, 2*v + 1, tm + 1, tr)
-            self._sum_buf[v] = max(self._sum_buf[2*v],
-                                     self._sum_buf[2*v + 1])
+        try:
+            if tl == tr:
+                self._sum_buf[v] = tsum[tl]
+            else:
+                tm = (tl + tr) // 2
+                self._build_sum(tsum, 2*v, tl, tm)
+                self._build_sum(tsum, 2*v + 1, tm + 1, tr)
+                self._sum_buf[v] = max(self._sum_buf[2*v],
+                                         self._sum_buf[2*v + 1])
+        except:
+            raise Exception("{0} {1}".format(tl, tr))
 
     def _rsum(self, v, tl, tr, l, r):
+        if l > r:
+            return 0
         if l == tl and r == tr:
             return self._sum_buf[v]
         tm = (tl + tr) // 2

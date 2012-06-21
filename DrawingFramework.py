@@ -11,8 +11,8 @@ class EdgeType(object):
 class DrawingFramework(object):
     def __init__(self):
         self.__canvas_options = {"background" : "White",
-                                 "width" : 500,
-                                 "height" : 500}
+                                 "width" : 800,
+                                 "height" : 700}
         self.__vertex_options = {"fill" : "White",
                                  "width" : 1,
                                  "outline" : "Black"}
@@ -55,11 +55,11 @@ class DrawingFramework(object):
         scrollbar_x.pack(side=BOTTOM, fill=X)
         self.__canvas = Canvas(self.__root, self.__canvas_options)
         self.__canvas.configure(scrollregion=self.__canvas.bbox(ALL))
-        self.__canvas.pack()
         self.__canvas.config(yscrollcommand=scrollbar_y.set)
         self.__canvas.config(xscrollcommand=scrollbar_x.set)
         scrollbar_y.config(command=self.__canvas.yview)
         scrollbar_x.config(command=self.__canvas.xview)
+        self.__canvas.pack()
 #        scrollbar = Scrollbar(self.__canvas)
 #        scrollbar.pack(side=RIGHT, fill=X)
         self.__initialized = True

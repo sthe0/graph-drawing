@@ -25,7 +25,7 @@ def read_graph(filename):
 
 
 def main():
-    graph = read_graph("resource/graph2.txt")
+    graph = read_graph("resource/graph0.txt")
     CompoundGraphDrawer().draw(graph)
 
     return 0

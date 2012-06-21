@@ -134,7 +134,15 @@ class Tree(object):
 
     def get_child_ancestor(self, node1, node2):
         if not self.is_ancestor_of(node1, node2):
-            raise ValueError("Second argument must be a descendant of first one.")
+            str1 = "";
+            while node1 is not None:
+                str1 += " " + str(node1.data)
+                node1 = node1.parent
+            str2 = "";
+            while node2 is not None:
+                str2 += " " + str(node2.data)
+                node2 = node2.parent
+            raise ValueError("Second argument must be a descendant of first one.\n" + str1 + "\n" + str2)
 
         for index, child in node1.children:
             if self.is_ancestor_of(child, node2) or child == node2:
