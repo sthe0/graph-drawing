@@ -124,7 +124,8 @@ class Digraph(object):
         return copy.copy(self.__vertices)
 
     def get_edges(self):
-        return [(src, dst, edge) for src in self.__vertices for dst, edge in self.get_neighbours(src)]
+        return [(src, dst, edge) for src in self.__vertices for dst, edge in
+                                 self.get_neighbours(src)]
 
     def copy(self):
         graph = Digraph()
@@ -156,7 +157,7 @@ class Digraph(object):
         result.append(vertex)
 
     def topological_sort(self):
-        tmp_set = {vertex : False for vertex in self.__vertices}
+        tmp_set = {vertex: False for vertex in self.__vertices}
         result = []
 
         for vertex in self.__vertices:
@@ -174,7 +175,7 @@ class Digraph(object):
 
     def is_connected(self):
         possible_root = self.topological_sort()[0]
-        tmp_set = {vertex : False for vertex in self.__vertices}
+        tmp_set = {vertex: False for vertex in self.__vertices}
         self.__is_connected_r(possible_root, tmp_set)
         return False not in tmp_set.values()
 
@@ -183,3 +184,4 @@ class Digraph(object):
 
     vertices = property(get_vertices)
     edges = property(get_edges)
+

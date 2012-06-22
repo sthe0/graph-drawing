@@ -20,7 +20,8 @@ class TreeNode(object):
         if index in self._children:
             return self._children[index], False
 
-        self._children[index] = TreeNode(tree=self._tree, data=data, level=self._level + 1, parent=self)
+        self._children[index] = TreeNode(tree=self._tree, data=data, level=self._level + 1,
+            parent=self)
         self._tree._nodes.add(self._children[index])
         return self._children[index], True
 
@@ -96,7 +97,7 @@ class Tree(object):
             self._finished = value
             return
         self._time = 0
-        self._uplinks = {self._root : [self._root]}
+        self._uplinks = {self._root: [self._root]}
         self._finish_r(self._root)
         self._finished = True
 
@@ -149,3 +150,4 @@ class Tree(object):
     root = property(get_root)
     nodes = property(get_nodes)
     finished = property(get_finished, set_finished)
+

@@ -5,6 +5,9 @@ import Digraph
 import DrawingFramework
 from itertools import chain
 from Tree import Tree
+from RMQTree import RMQTree
+from RSQTree import RSQTree
+from queue import Queue
 
 class Relation:
     LT = 0
@@ -25,51 +28,14 @@ class RelationEdge(Digraph.Edge):
     relation = property(get_relation)
 
 
-class CompoundLayer(list):
-    def __init__(self):
-        super(CompoundLayer, self).__init__()
-
-    def cmp(self, other):
-        for i in range(min(len(self), len(other))):
-            if self[i] < other[i]:
-                return -1
-            elif self[i] > other[i]:
-                return 1
-        return len(other) - len(self)
-
-    def _le_(self, other):
-        return self.cmp(other) <= 0
-
-    def _lt_(self, other):
-        return self.cmp(other) < 0
-
-    def _ge_(self, other):
-        return self.cmp(other) >= 0
-
-    def _gt_(self, other):
-        return self.cmp(other) > 0
-
-    def _eq_(self, other):
-        return self.cmp(other) == 0
-
-    @classmethod
-    def get_common_prefix(cls, layer1, layer2):
-        prefix = []
-        for i in range(min(len(layer1), len(layer2))):
-            if layer1[i] == layer2[i]:
-                prefix.append(layer1[i])
-            else:
-                break
-        return prefix
-
-
 class CompoundGraphDrawer(object):
     _order_iterations = 10
 
     #empty declarations
     #just declare object private variables
     #show variables interrelations
-    def __init__(self, leaf_width=30, leaf_height=12, padding=5, header_height=15, margin=12):
+    def __init__(self, leaf_width=15, leaf_height=0, padding=3, header_height=8, margin_x=10,
+                 margin_y=20):
         self._inc_tree = Tree()
         self._inc_tree_nodes = {}
         self._adj_graph = Digraph.Digraph()
@@ -95,13 +61,20 @@ class CompoundGraphDrawer(object):
         self._left_top_y = 1
         self._header_height = header_height
         self._padding = padding
-        self._margin = margin
+        self._margin_y = margin_y
+        self._margin_x = margin_x
         self._drawer = DrawingFramework.DrawingFramework()
 
     def _compare_compound_layers(self, node1, node2):
+        if self._compound_layer_tree.is_ancestor_of(node1, node2):
+            return -1
+        if self._compound_layer_tree.is_ancestor_of(node2, node1):
+            return 1
         least_common_ancestor = self._compound_layer_tree.get_least_common_ancestor(node1, node2)
-        index1, ancestor1 = self._compound_layer_tree.get_child_ancestor(least_common_ancestor, node1)
-        index2, ancestor2 = self._compound_layer_tree.get_child_ancestor(least_common_ancestor, node2)
+        index1, ancestor1 = self._compound_layer_tree.get_child_ancestor(least_common_ancestor,
+            node1)
+        index2, ancestor2 = self._compound_layer_tree.get_child_ancestor(least_common_ancestor,
+            node2)
         if ancestor1.data < ancestor2.data:
             return -1
         if ancestor1.data > ancestor2.data:
@@ -125,17 +98,24 @@ class CompoundGraphDrawer(object):
         for src in vertices:
             for dst in vertices:
                 if self._relation_graph.has_edge(src, dst):
-                    graph.add_edge(src, dst)
+                    graph.add_edge(src, dst, self._relation_graph.get_edge(src, dst))
         return graph
 
     def _make_acyclic(self, induced_graph):
         vertices = induced_graph.topological_sort()
-        vertices.sort(key=(lambda x : len(induced_graph.get_neighbours(x))), reverse=True)
-        vertex_indexes = {vertex : index for index, vertex in enumerate(vertices)}
+        vertices.sort(key=(lambda x: len(induced_graph.get_neighbours(x)) -
+                                     len(induced_graph.get_inverted_neighbours(x))),
+                      reverse=True)
+        vertex_indexes = {vertex: index for index, vertex in enumerate(vertices)}
         for src in vertices:
             for dst, edge in induced_graph.get_neighbours(src):
                 if vertex_indexes[src] > vertex_indexes[dst]:
-                    self._relation_graph.invert_edge(src, dst)
+                    relation = edge.relation
+                    if self._relation_graph.has_edge(dst, src):
+                        relation = min(relation, self._relation_graph.get_edge(dst, src).relation)
+                        self._relation_graph.remove_edge(dst, src)
+                    self._relation_graph.remove_edge(src, dst)
+                    self._relation_graph.add_edge(dst, src, RelationEdge(relation))
 
     def _derive_all_relations(self, node_set):
         if not node_set:
@@ -148,15 +128,15 @@ class CompoundGraphDrawer(object):
         self._derive_all_relations(children)
 
         for src_node in node_set:
-            for dst_node in node_set:
-                if self._relation_graph.has_edge(src_node.origin, dst_node.origin):
-                    src_parent_node = src_node.parent
-                    dst_parent_node = dst_node.parent
-                    if src_parent_node != dst_parent_node and \
-                       not self._relation_graph.has_edge(src_parent_node.origin, dst_parent_node.origin):
-                        self._relation_graph.add_edge(src_parent_node.origin,
-                                                      dst_parent_node.origin,
-                                                      RelationEdge(Relation.LE))
+            for dst, edge in self._relation_graph.get_neighbours(src_node.origin):
+                src_parent_node = src_node.parent
+                dst_parent_node = self._inc_tree_nodes[dst].parent
+                if src_parent_node != dst_parent_node and\
+                   not self._relation_graph.has_edge(src_parent_node.origin,
+                       dst_parent_node.origin):
+                    self._relation_graph.add_edge(src_parent_node.origin,
+                        dst_parent_node.origin,
+                        RelationEdge(Relation.LE))
 
         self._make_acyclic(self._induce_graph(node_set))
 
@@ -166,52 +146,67 @@ class CompoundGraphDrawer(object):
         self._derive_strict_relations(self._inc_tree.root)
         self._derive_all_relations(set(child for index, child in self._inc_tree.root.children))
 
-    def _assign_compound_layers_r(self, vertex_set):
-        if len(vertex_set) == 0:
-            return
+    def _assign_compound_layers_r(self, vertex_set, parent_cl_node):
+        global_q = Queue()
+        global_q.put((vertex_set, parent_cl_node))
+        while not global_q.empty():
+            x = global_q.get()
+            vertex_set, parent_cl_node = x[0], x[1]
+            if not vertex_set:
+                continue
 
-        layer = {vertex:0 for vertex in vertex_set}
-        for vertex in vertex_set:
-            if not self._relation_graph.has_inverted_neighbours(vertex):
-                layer[vertex] = 1
-        while True:
-            changed = False
-            for src in vertex_set:
-                if layer[src] >= 1:
-                    for dst in vertex_set:
-                        if self._relation_graph.has_edge(src, dst):
-                            edge = self._relation_graph.get_edge(src, dst)
-                            if (edge.relation == Relation.LT) and (layer[src] >= layer[dst]):
-                                layer[dst] = layer[src] + 1
-                                changed = True
-                            if (edge.relation == Relation.LE) and (layer[src] > layer[dst]):
-                                layer[dst] = layer[src]
-                                changed = True
-            if not changed:
-                break
+            layer = {vertex: 0 for vertex in vertex_set}
+            max_layer = 0
+            local_q = Queue()
+            for vertex in vertex_set:
+                is_first = True
+                for dst, edge in self._relation_graph.get_inverted_neighbours(vertex):
+                    dst_parent = self._inc_tree_nodes[dst].parent.origin
+                    if self._compound_layer_tree_nodes[dst_parent] == parent_cl_node:
+                        is_first = False
+                        break
+                if is_first:
+                    layer[vertex] = 1
+                    local_q.put(vertex)
 
-        children = set()
-        for vertex in vertex_set:
-            parent = self._inc_tree_nodes[vertex].parent.origin
-            new_node = self._compound_layer_tree_nodes[parent].add_child(layer[vertex], layer[vertex])[0]
-            self._compound_layer_tree_nodes[vertex] = new_node
-            for index, child in self._inc_tree_nodes[vertex].children:
-                children.add(child.origin)
+            while not local_q.empty():
+                src = local_q.get()
+                max_layer = max(layer[src], max_layer)
+                for dst, edge in self._relation_graph.get_neighbours(src):
+                    if dst in vertex_set:
+                        local_q.put(dst)
+                        if edge.relation == Relation.LT:
+                            layer[dst] = max(layer[src] + 1, layer[dst])
+                        else:
+                            layer[dst] = max(layer[src], layer[dst])
 
-        self._assign_compound_layers_r(children)
+            layers = [[] for _ in range(0, max_layer + 1)]
+            for vertex in vertex_set:
+                layers[layer[vertex]].append(vertex)
+
+            for i in range(1, max_layer + 1):
+                new_node = parent_cl_node.add_child(i, i)[0]
+                children = set()
+                for vertex in layers[i]:
+                    self._compound_layer_tree_nodes[vertex] = new_node
+                    for index, child in self._inc_tree_nodes[vertex].children:
+                        children.add(child.origin)
+                global_q.put((children, new_node))
 
     def _assign_compound_layers(self):
         self._derive_relation_graph()
 
         self._compound_layer_tree = Tree(root_data=1)
         self._compound_layer_tree_nodes[self._inc_tree.root.origin] = self._compound_layer_tree.root
-        self._assign_compound_layers_r(set(child.origin for index, child in self._inc_tree.root.children))
+        self._assign_compound_layers_r(
+            set(child.origin for index, child in self._inc_tree.root.children),
+            self._compound_layer_tree.root)
         self._compound_layer_tree.finished = True
         self._inverted_edges = set()
 
         for src, dst, edge in self._adj_graph.edges:
             if self._compare_compound_layers(self._compound_layer_tree_nodes[src],
-                                              self._compound_layer_tree_nodes[dst]) > 0:
+                self._compound_layer_tree_nodes[dst]) > 0:
                 self._adj_graph.invert_edge(src, dst)
                 self._inverted_edges.add(self._adj_graph.get_edge(dst, src))
 
@@ -232,9 +227,11 @@ class CompoundGraphDrawer(object):
     def _create_fake_vertex_adj_chain(self, src, dst, inverted):
         src_cl_node = self._compound_layer_tree_nodes[src]
         dst_cl_node = self._compound_layer_tree_nodes[dst]
+        parent_node = self._inc_tree_nodes[src].parent
         prev_vertex = src
         for i in range(src_cl_node.data + 1, dst_cl_node.data):
-            next_vertex = self._add_vertex(src_cl_node.parent, i).origin
+            next_vertex = self._add_vertex(parent_node, i).origin
+            self._fake_vertices.add(next_vertex)
             self._add_fake_adj_edge(prev_vertex, next_vertex, inverted)
             prev_vertex = next_vertex
         self._add_fake_adj_edge(prev_vertex, dst, inverted)
@@ -275,7 +272,8 @@ class CompoundGraphDrawer(object):
             src_cl_node = self._compound_layer_tree_nodes[src]
             dst_cl_node = self._compound_layer_tree_nodes[dst]
             cl_key = (src_cl_node, dst_cl_node)
-            cl_common_ancestors[cl_key] = self._compound_layer_tree.get_least_common_ancestor(src_cl_node, dst_cl_node)
+            cl_common_ancestors[cl_key] = self._compound_layer_tree.get_least_common_ancestor(
+                src_cl_node, dst_cl_node)
 
             src_node = self._inc_tree_nodes[src]
             dst_node = self._inc_tree_nodes[dst]
@@ -289,7 +287,7 @@ class CompoundGraphDrawer(object):
             src_cl_node = self._compound_layer_tree_nodes[src]
             dst_cl_node = self._compound_layer_tree_nodes[dst]
 
-            if src_cl_node.parent == dst_cl_node.parent and dst_cl_node.data - dst_cl_node.data == 1:
+            if src_cl_node.parent == dst_cl_node.parent and dst_cl_node.data - src_cl_node.data == 1:
                 continue
 
             inverted = edge in self._inverted_edges
@@ -301,13 +299,16 @@ class CompoundGraphDrawer(object):
 
             common_ancestor = common_ancestors[(src_node, dst_node)]
             cl_common_ancestor = cl_common_ancestors[(src_cl_node, dst_cl_node)]
-            fake_common_ancestor = self._create_fake_vertex_inc_chain(common_ancestor, cl_common_ancestor, 0)[0]
+            fake_common_ancestor =\
+            self._create_fake_vertex_inc_chain(common_ancestor, cl_common_ancestor, 0)[0]
 
             if src_cl_node.parent != cl_common_ancestor:
-                src_neighbour_node, src_top_node = self._create_fake_vertex_inc_chain(fake_common_ancestor, src_cl_node, 1)
+                src_neighbour_node, src_top_node = self._create_fake_vertex_inc_chain(
+                    fake_common_ancestor, src_cl_node, 1)
                 self._add_fake_adj_edge(src_node.origin, src_neighbour_node.origin, inverted)
             if dst_cl_node.parent != cl_common_ancestor:
-                dst_neighbour_node, dst_top_node = self._create_fake_vertex_inc_chain(fake_common_ancestor, dst_cl_node, -1)
+                dst_neighbour_node, dst_top_node = self._create_fake_vertex_inc_chain(
+                    fake_common_ancestor, dst_cl_node, -1)
                 self._add_fake_adj_edge(dst_neighbour_node.origin, dst_node.origin, inverted)
             self._create_fake_vertex_adj_chain(src_top_node.origin, dst_top_node.origin, inverted)
 
@@ -320,42 +321,50 @@ class CompoundGraphDrawer(object):
     def _split_into_levels(self, node):
         local_vertices = [child.origin for index, child in self._inc_tree_nodes[node].children]
 
-        levels = {}
+        max_level = max(self._compound_layer_tree_nodes[vertex].data for vertex in local_vertices)
+        #first and last levels are fake and always empty
+        levels = [[] for _ in range(0, max_level + 2)]
         for vertex in local_vertices:
-            levels.setdefault(self._compound_layer_tree_nodes[vertex].data, []).append(vertex)
+            levels[self._compound_layer_tree_nodes[vertex].data].append(vertex)
 
-        return [value for key, value in levels.items()]
+        return levels
 
-    def _count_level_neighbours(self, level):
-        for vertex in level:
-            self._adj_left[vertex] = 0
-            self._adj_right[vertex] = 0
-            for dst, edge in self._order_service_graph.get_neighbours(vertex):
-                vertex_parent_node = self._inc_tree_nodes[vertex].parent
-                dst_parent_node = self._inc_tree_nodes[dst].parent
-                if vertex_parent_node != dst_parent_node:
-                    if self._order_index[dst_parent_node.origin] < self._order_index[vertex_parent_node.origin]:
-                        self._adj_left[vertex] += 1
-                    else:
-                        self._adj_right[vertex] += 1
+    def _count_neighbours(self, vertex):
+        self._adj_left[vertex] = 0
+        self._adj_right[vertex] = 0
+        for dst, edge in chain(self._order_service_graph.get_neighbours(vertex),
+            self._order_service_graph.get_inverted_neighbours(vertex)):
+            vertex_parent_node = self._inc_tree_nodes[vertex].parent
+            dst_parent_node = self._inc_tree_nodes[dst].parent
+            if vertex_parent_node != dst_parent_node:
+                if self._order_index[dst_parent_node.origin] < self._order_index[
+                                                               vertex_parent_node.origin]:
+                    self._adj_left[vertex] += 1
+                else:
+                    self._adj_right[vertex] += 1
 
     def _minimize_closeness(self, level):
-        splitted = {"left" : [], "middle" : [], "right" : []}
+        splitted = {"left": [], "middle": [], "right": []}
         for vertex in level:
+            self._count_neighbours(vertex)
             if self._get_adj_difference(vertex) < 0:
                 splitted["left"].append(vertex)
             elif self._get_adj_difference(vertex) == 0:
                 splitted["middle"].append(vertex)
             else:
                 splitted["right"].append(vertex)
+        splitted["left"].sort(key=(lambda x: self._get_adj_difference(x)))
+        splitted["right"].sort(key=(lambda x: self._get_adj_difference(x)))
         return splitted
 
     def _create_dummies(self, level):
         dummies = []
         edges = set()
+        vertex_set = set(level)
         for src in level:
-            for dst in level:
-                if self._order_service_graph.has_edge(src, dst):
+            for dst, edge in chain(self._order_service_graph.get_neighbours(src),
+                self._order_service_graph.get_inverted_neighbours(src)):
+                if dst in vertex_set:
                     if (dst, src) in edges:
                         continue
                     edges.add((src, dst))
@@ -368,40 +377,56 @@ class CompoundGraphDrawer(object):
                     dummies.append(vertex)
         return dummies
 
-    def _compute_barycenter(self, src, level):
+    def _compute_barycenter(self, src, level_dict):
         mean = 0
         neighbours = 0
-        for index, dst in enumerate(level):
-            if self._adj_graph.has_edge(src, dst) or self._adj_graph.has_edge(dst, src):
-                mean += index
+        self._barycenter[src] = None
+        for dst, edge in chain(self._adj_graph.get_neighbours(src),
+            self._adj_graph.get_inverted_neighbours(src)):
+            if dst in level_dict:
+                mean += level_dict[dst]
                 neighbours += 1
-        self._barycenter[src] = mean / max(neighbours, 1)
+        if neighbours > 0:
+            self._barycenter[src] = mean / neighbours
 
-    def _compute_barycenter2(self, src, level):
+    def _compute_barycenter2(self, src, level_set, default_x=None):
         mean = 0
         neighbours = 0
-        for dst in level:
-            if self._adj_graph.has_edge(src, dst) or self._adj_graph.has_edge(dst, src):
+
+        if default_x is None:
+            self._barycenter[src] = self._x[src]
+        else:
+            self._barycenter[src] = default_x
+
+        for dst, edge in chain(self._adj_graph.get_neighbours(src),
+            self._adj_graph.get_inverted_neighbours(src)):
+            if dst in level_set:
                 mean += self._x[dst]
                 neighbours += 1
-        self._barycenter[src] = mean // max(neighbours, 1)
+        if neighbours > 0:
+            self._barycenter[src] = mean // neighbours
+
 
     def _reorder(self, level):
+        last_barycenter = 0
+        for vertex in level:
+            if self._barycenter[vertex] is None:
+                self._barycenter[vertex] = last_barycenter
+            else:
+                last_barycenter = self._barycenter[vertex]
+
         level.sort(key=(lambda x: self._barycenter[x]))
 
     def _barycentric_order(self, level1, level2):
+        level2_dict = {vertex: index for index, vertex in enumerate(level2)}
         for vertex1 in level1:
-            self._compute_barycenter(vertex1, level2)
-        for vertex2 in level2:
-            self._compute_barycenter(vertex2, level1)
+            self._compute_barycenter(vertex1, level2_dict)
 
     def _merge_lists(self, list1, list2, base_list):
-        for vertex1 in list1:
-            self._compute_barycenter(vertex1, base_list)
-        for vertex2 in list2:
-            self._compute_barycenter(vertex2, base_list)
-
         result = list1 + list2
+        base_list_dict = {vertex: index for index, vertex in enumerate(base_list)}
+        for vertex in result:
+            self._compute_barycenter(vertex, base_list_dict)
         self._reorder(result)
 
         return result
@@ -419,12 +444,14 @@ class CompoundGraphDrawer(object):
 
     def _make_ordering_step(self, splitted, index, prev):
         dummies = self._create_dummies(splitted[index]["middle"])
-        merged = self._merge_lists(splitted[prev]["middle"], dummies, splitted[index]["middle"])
-        self._barycentric_order(merged, splitted[index]["middle"])
-        splitted[prev]["middle"] = self._remove_dummies(merged)
-
-        self._reorder(splitted[prev]["middle"])
+        self._barycentric_order(splitted[index]["middle"], dummies)
+        self._barycentric_order(splitted[index]["middle"], splitted[prev]["middle"])
         self._reorder(splitted[index]["middle"])
+
+        merged = self._merge_lists(splitted[prev]["middle"], dummies, splitted[index]["middle"])
+        self._barycentric_order(splitted[index]["middle"], merged)
+        self._reorder(splitted[index]["middle"])
+        splitted[prev]["middle"] = self._remove_dummies(merged)
 
     def _order_local(self, node):
         if not node.children:
@@ -433,64 +460,55 @@ class CompoundGraphDrawer(object):
         levels = self._split_into_levels(node.origin)
         splitted = []
         for level in levels:
-            self._count_level_neighbours(level)
             splitted.append(self._minimize_closeness(level))
 
         for i in range(self._order_iterations):
-            init_dummies = self._create_dummies(splitted[0]["middle"])
-            if len(init_dummies) > 0:
-                self._barycentric_order(init_dummies, splitted[0]["middle"])
-                self._remove_dummies(init_dummies)
-                self._reorder(splitted[0]["middle"])
-
-            for j in range(1, len(splitted)):
+            for j in range(1, len(splitted) - 1):
                 self._make_ordering_step(splitted, j, j - 1)
 
-            init_dummies = self._create_dummies(splitted[-1]["middle"])
-            if len(init_dummies) > 0:
-                self._barycentric_order(init_dummies, splitted[-1]["middle"])
-                self._remove_dummies(init_dummies)
-                self._reorder(splitted[-1]["middle"])
-
-            for j in reversed(range(0, len(splitted) - 1)):
+            for j in reversed(range(0, len(splitted) - 2)):
                 self._make_ordering_step(splitted, j, j + 1)
 
-        for i in range(0, len(splitted)):
-            for index, vertex in enumerate(splitted[i]["left"] + splitted[i]["middle"] + splitted[i]["right"]):
+        for i in range(1, len(splitted)):
+            for index, vertex in enumerate(
+                splitted[i]["left"] + splitted[i]["middle"] + splitted[i]["right"]):
                 self._order_index[vertex] = index
 
     def _order_global(self, node):
-        self._order_local(node)
-        for index, child in node.children:
-            self._order_global(child)
+        q = Queue()
+        q.put(node)
+        while not q.empty():
+            top_node = q.get()
+            self._order_local(top_node)
+            for index, child in top_node.children:
+                q.put(child)
 
-    #TODO: count edges for pairs of vertices?
-    def __init__order_service_graph(self, node):
+    def _init_order_service_graph(self, node):
         for index, child in node.children:
-            self.__init__order_service_graph(child)
+            self._init_order_service_graph(child)
 
-        for dst, edge in self._adj_graph.get_neighbours(node.origin):
+        for dst, edge in chain(self._adj_graph.get_neighbours(node.origin),
+            self._order_service_graph.get_neighbours(node.origin)):
             self._order_service_graph.add_edge(node.origin, dst)
             self._order_service_graph.add_edge(dst, node.origin)
             src_parent_node = self._inc_tree_nodes[node.origin].parent
             dst_parent_node = self._inc_tree_nodes[dst].parent
             if src_parent_node != dst_parent_node:
                 self._order_service_graph.add_edge(src_parent_node.origin, dst_parent_node.origin)
-                self._order_service_graph.add_edge(dst_parent_node.origin, src_parent_node.origin)
 
     def _determine_vertex_order(self):
         self._order_service_graph = Digraph.Digraph()
         self._order_service_graph.add_vertices(self._adj_graph.vertices)
-        self.__init__order_service_graph(self._inc_tree.root)
-
+        self._init_order_service_graph(self._inc_tree.root)
         self._ordered_graph = Digraph.Digraph()
         self._ordered_graph.add_vertices(self._adj_graph.vertices)
         self._order_global(self._inc_tree.root)
 
-    def _compute_connectivity(self, src, level):
+    def _compute_connectivity(self, src, level_set):
         connectivity = 0
-        for dst in level:
-            if self._adj_graph.has_edge(src, dst) or self._adj_graph.has_edge(dst, src):
+        for dst, edge in chain(self._adj_graph.get_neighbours(src),
+            self._adj_graph.get_inverted_neighbours(src)):
+            if dst in level_set:
                 connectivity += 1
         return connectivity
 
@@ -504,53 +522,70 @@ class CompoundGraphDrawer(object):
                 rigth_part.append(vertex)
         return left_part, rigth_part
 
-    def _improve_positions_r(self, level, left_bound, right_bound, direction):
-        if len(level) == 0:
-            return []
+    def _improve_positions(self, level, rmq_tree, rsq_tree, l, r, left_bound, right_bound):
+        if l > r or not level:
+            return
 
-        top_vertex = max(level, key=(lambda x: self._connectivity[x][direction]))
-        left_part, right_part = self._split_level(level, top_vertex)
+        priority, index = rmq_tree.get_max(l, r)
+        index = abs(index)
+        top_vertex = level[index]
 
-        left_part_width = 0
-        if len(left_part) > 0:
-            left_part_width = sum(self._width[vertex] + self._margin for vertex in left_part)
-        right_part_width = 0
-        if len(right_part) > 0:
-            right_part_width = sum(self._margin + self._width[vertex] for vertex in right_part)
+        local_left_bound, local_right_bound = left_bound, right_bound
+        local_l, local_r = l, r
 
-        right_shift = min(self._barycenter[top_vertex] - self._x[top_vertex],
-                          right_bound - right_part_width - self._x[top_vertex] - self._half(self._width[top_vertex]))
-        left_shift = min(self._x[top_vertex] - self._barycenter[top_vertex],
-                         self._x[top_vertex] - self._half(self._width[top_vertex]) - left_part_width - left_bound)
+        if index > l:
+            lpriority, lindex = rmq_tree.get_max(l, index - 1)
+            lvertex = level[lindex]
+            if lpriority == priority:
+                local_left_bound = max(
+                    min(self._x[lvertex] + self._half(self._width[lvertex]) + self._margin_x,
+                        right_bound - rsq_tree.get_sum(lindex + 1, r) - self._margin_x * (
+                            r - lindex - 1)),
+                    left_bound + rsq_tree.get_sum(l, lindex) + self._margin_x * (lindex - l + 2))
+                local_l = lindex + 1
 
-        if right_shift > 0:
-            self._x[top_vertex] += right_shift
-            rightmost_x = self._x[top_vertex] + self._half(self._width[top_vertex])
-            for vertex in right_part:
-                self._x[vertex] = rightmost_x + self._margin + self._half(self._width[vertex])
-                rightmost_x += self._margin + self._width[vertex]
+        if index < r:
+            rpriority, rindex = rmq_tree.get_max(index + 1, r)
+            rindex = abs(rindex)
+            rvertex = level[rindex]
+            if rpriority == priority:
+                local_right_bound = min(
+                    max(self._x[rvertex] - self._half(self._width[rvertex]) - self._margin_x,
+                        left_bound + rsq_tree.get_sum(l, rindex - 1) + self._margin_x * (
+                            rindex - l - 1)),
+                    right_bound - rsq_tree.get_sum(rindex, r) - self._margin_x * (r - rindex + 2))
+                local_r = rindex - 1
 
-        if left_shift > 0:
-            self._x[top_vertex] -= left_shift
-            leftmost_x = self._x[top_vertex] - self._half(self._width[top_vertex])
-            for vertex in reversed(left_part):
-                self._x[vertex] = leftmost_x - self._margin - self._half(self._width[vertex])
-                leftmost_x -= self._margin + self._width[vertex]
+        left_part_width = rsq_tree.get_sum(local_l, index - 1) + (index - local_l) * self._margin_x
+        right_part_width = rsq_tree.get_sum(index + 1, local_r) + (local_r - index) * self._margin_x
 
-        return self._improve_positions_r(left_part,
-                                         left_bound,
-                                         self._x[top_vertex] - self._half(self._width[top_vertex]) - self._margin,
-                                         direction) \
-               + [top_vertex] + \
-               self._improve_positions_r(right_part,
-                                         self._x[top_vertex] + self._half(self._width[top_vertex]) + self._margin,
-                                         right_bound,
-                                         direction)
+        local_left_bound += left_part_width + self._half(self._width[top_vertex])
+        local_right_bound -= right_part_width + self._half(self._width[top_vertex])
 
-    def _improve_positions(self, levels, index, prev):
-        for vertex in levels[index]:
-            self._compute_barycenter2(vertex, levels[prev])
-        return self._improve_positions_r(levels[index], -sys.maxsize, sys.maxsize, prev - index)
+        self._x[top_vertex] = max(self._x[top_vertex], local_left_bound)
+        self._x[top_vertex] = min(self._x[top_vertex], local_right_bound)
+
+        right_shift = max(0, min(self._barycenter[top_vertex] - self._x[top_vertex],
+            local_right_bound - self._x[top_vertex]))
+        left_shift = -max(0, min(self._x[top_vertex] - self._barycenter[top_vertex],
+            self._x[top_vertex] - local_left_bound))
+
+        self._x[top_vertex] += left_shift + right_shift
+
+        self._improve_positions(level,
+            rmq_tree,
+            rsq_tree,
+            l,
+            index - 1,
+            left_bound,
+            self._x[top_vertex] - self._half(self._width[top_vertex]) - self._margin_x)
+        self._improve_positions(level,
+            rmq_tree,
+            rsq_tree,
+            index + 1,
+            r,
+            self._x[top_vertex] + self._half(self._width[top_vertex]) + self._margin_x,
+            right_bound)
 
     def _prm_method(self, vertex):
         if not self._inc_tree_nodes[vertex].children and vertex not in self._fake_vertices:
@@ -565,26 +600,86 @@ class CompoundGraphDrawer(object):
         levels = self._split_into_levels(vertex) #maybe it's better to use global levels list
 
         for i in range(0, len(levels)):
+            if not levels[i]:
+                continue
+
             levels[i] = list(sorted(levels[i], key=(lambda x: self._order_index[x])))
             self._x[levels[i][0]] = self._half(self._width[levels[i][0]])
 
             for j in range(1, len(levels[i])):
-                self._x[levels[i][j]] = self._x[levels[i][j - 1]] + self._half(self._width[levels[i][j - 1]]) + \
-                                        self._margin + self._half(self._width[levels[i][j]])
+                self._x[levels[i][j]] = self._x[levels[i][j - 1]] + self._half(
+                    self._width[levels[i][j - 1]]) +\
+                                        self._margin_x + self._half(self._width[levels[i][j]])
 
+        left_rmq_tree = [{-1: [], +1: []} for _ in range(0, len(levels))]
+        right_rmq_tree = [{-1: [], +1: []} for _ in range(0, len(levels))]
+        level_sets = [set() for _ in range(0, len(levels))]
+        rsq_tree = [None for _ in range(0, len(levels))]
+        max_connectivity = 0
+        for i in range(1, len(levels) - 1):
+            level_sets[i] = set(levels[i])
+
+            connectivity = {}
             for j in range(0, len(levels[i])):
-                self._connectivity[levels[i][j]] = {}
-                if i > 0:
-                    self._connectivity[levels[i][j]][-1] = self._compute_connectivity(levels[i][j], levels[i - 1])
-                if i < len(levels) - 1:
-                    self._connectivity[levels[i][j]][+1] = self._compute_connectivity(levels[i][j], levels[i + 1])
+                connectivity[levels[i][j]] = {-1: 0, +1: 0}
+                if i > 1:
+                    connectivity[levels[i][j]][-1] = self._compute_connectivity(levels[i][j],
+                        level_sets[i - 1])
+                    max_connectivity = max(max_connectivity, connectivity[levels[i][j]][-1])
+                if i < len(levels) - 2:
+                    connectivity[levels[i][j]][+1] = self._compute_connectivity(levels[i][j],
+                        level_sets[i + 1])
+                    max_connectivity = max(max_connectivity, connectivity[levels[i][j]][+1])
 
-        for i in range(1, len(levels)):
-            levels[i] = self._improve_positions(levels, i, i - 1)
-        for i in reversed(range(0, len(levels) - 1)):
-            levels[i] = self._improve_positions(levels, i, i + 1)
-        for i in range(1, len(levels)):
-            levels[i] = self._improve_positions(levels, i, i - 1)
+            left_priorities = {-1: [], +1: []}
+            right_priorities = {-1: [], +1: []}
+            level_width = []
+            max_connectivity += 1
+            for n, level_vertex in enumerate(levels[i]):
+                level_width.append(self._width[level_vertex])
+                if level_vertex in self._fake_vertices:
+                    right_priorities[-1].append((max_connectivity, n))
+                    left_priorities[-1].append((max_connectivity, -n))
+                    right_priorities[+1].append((max_connectivity, n))
+                    left_priorities[+1].append((max_connectivity, -n))
+                else:
+                    right_priorities[-1].append((connectivity[level_vertex][-1], n))
+                    left_priorities[-1].append((connectivity[level_vertex][-1], -n))
+                    right_priorities[+1].append((connectivity[level_vertex][+1], n))
+                    left_priorities[+1].append((connectivity[level_vertex][+1], -n))
+
+            if levels[i]:
+                rsq_tree[i] = RSQTree(level_width)
+                right_rmq_tree[i][-1] = RMQTree(right_priorities[-1])
+                left_rmq_tree[i][-1] = RMQTree(left_priorities[-1])
+                right_rmq_tree[i][+1] = RMQTree(right_priorities[+1])
+                left_rmq_tree[i][+1] = RMQTree(left_priorities[+1])
+
+        for i in range(2, len(levels) - 1):
+            for level_vertex in levels[i]:
+                self._compute_barycenter2(level_vertex, level_sets[i - 1])
+            self._improve_positions(levels[i], right_rmq_tree[i][-1], rsq_tree[i], 0,
+                len(levels[i]) - 1, -sys.maxsize, sys.maxsize)
+        for i in reversed(range(1, len(levels) - 1)):
+            for level_vertex in levels[i]:
+                self._compute_barycenter2(level_vertex, level_sets[i + 1], self._x[levels[i][0]])
+            self._improve_positions(levels[i], left_rmq_tree[i][+1], rsq_tree[i], 0,
+                len(levels[i]) - 1, -sys.maxsize, sys.maxsize)
+        for i in range(1, len(levels) - 1):
+            for level_vertex in levels[i]:
+                self._compute_barycenter2(level_vertex, level_sets[i - 1], self._x[levels[i][0]])
+            self._improve_positions(levels[i], left_rmq_tree[i][-1], rsq_tree[i], 0,
+                len(levels[i]) - 1, -sys.maxsize, sys.maxsize)
+        for i in reversed(range(1, len(levels) - 1)):
+            for level_vertex in levels[i]:
+                self._compute_barycenter2(level_vertex, level_sets[i + 1])
+            self._improve_positions(levels[i], right_rmq_tree[i][+1], rsq_tree[i], 0,
+                len(levels[i]) - 1, -sys.maxsize, sys.maxsize)
+        for i in range(2, len(levels) - 1):
+            for level_vertex in levels[i]:
+                self._compute_barycenter2(level_vertex, level_sets[i - 1])
+            self._improve_positions(levels[i], right_rmq_tree[i][-1], rsq_tree[i], 0,
+                len(levels[i]) - 1, -sys.maxsize, sys.maxsize)
 
         vertices = list(sum(levels, []))
         min_x = min(self._x[vrtx] - self._half(self._width[vrtx]) for vrtx in vertices)
@@ -630,12 +725,12 @@ class CompoundGraphDrawer(object):
             return
 
         min_y += self._padding
-        max_y = min_y - self._margin + self._header_height
+        max_y = min_y - self._margin_y + self._header_height
 
         for index, cl_child in sorted(cl_node.children, key=(lambda pair: pair[0])):
-            self._set_y_coordinates(cl_child, max_y + self._margin)
-            self._y[cl_child] = max_y + self._margin + self._half(self._height[cl_child])
-            max_y += self._margin + self._height[cl_child]
+            self._set_y_coordinates(cl_child, max_y + self._margin_y)
+            self._y[cl_child] = max_y + self._margin_y + self._half(self._height[cl_child])
+            max_y += self._margin_y + self._height[cl_child]
 
         self._height[cl_node] = max_y - min_y + 2 * self._padding
 
@@ -646,6 +741,8 @@ class CompoundGraphDrawer(object):
             return DrawingFramework.EdgeType.ToReal
 
     def _set_coordinates(self, node, min_x):
+        if not node.children:
+            return
         levels = self._split_into_levels(node.origin)
         for level in levels:
             for vertex in level:
@@ -653,19 +750,24 @@ class CompoundGraphDrawer(object):
                 self._x[vertex] += min_x
                 self._y[vertex] = self._y[self._compound_layer_tree_nodes[vertex]]
                 self._height[vertex] = self._height[self._compound_layer_tree_nodes[vertex]]
-                self._set_coordinates(vertex_node, self._x[vertex] - self._half(self._width[vertex]))
+                self._set_coordinates(vertex_node,
+                    self._x[vertex] - self._half(self._width[vertex]))
 
     def _determine_bounds(self, node):
         min_y = sys.maxsize
         max_y = -sys.maxsize
+        edge_list = []
 
         for index, child in node.children:
-            child_min_y, child_max_y = self._determine_bounds(child)
+            child_min_y, child_max_y, local_edge_list = self._determine_bounds(child)
+            edge_list.extend(local_edge_list)
             min_y = min(min_y, child_min_y)
             max_y = max(max_y, child_max_y)
 
         src = node.origin
-        for dst, neighbour in chain(self._adj_graph.get_neighbours(src), self._adj_graph.get_inverted_neighbours(src)):
+        for dst, neighbour in chain(self._adj_graph.get_neighbours(src),
+            self._adj_graph.get_inverted_neighbours(src)):
+            edge_list.append([src, dst])
             src_cl_node = self._compound_layer_tree_nodes[src]
             dst_cl_node = self._compound_layer_tree_nodes[dst]
             if dst_cl_node.data < src_cl_node.data:
@@ -673,33 +775,39 @@ class CompoundGraphDrawer(object):
             elif dst_cl_node.data > src_cl_node.data:
                 max_y = max(max_y, self._y[src] + self._height[src] / 2)
 
-        return min_y, max_y
+        return min_y, max_y, edge_list
 
     def _layout_fake_vertex(self, vertex):
         node = self._inc_tree_nodes[vertex]
         if node.parent.origin in self._fake_vertices:
             return
 
-        min_y, max_y = self._determine_bounds(node)
+        min_y, max_y, edge_list = self._determine_bounds(node)
         self._drawer.draw_fake_vertex(self._x[vertex], min_y, max_y)
 
     def _layout_vertices(self):
+        self._compound_layer_tree.finished = False
+        self._inc_tree.finished = False
+
         for vertex in self._adj_graph.vertices:
             if vertex in self._fake_vertices:
                 self._layout_fake_vertex(vertex)
             else:
                 self._drawer.draw_vertex(self._x[vertex],
-                                         self._y[vertex],
-                                         self._width[vertex],
-                                         self._height[vertex],
-                                         self._header_height,
-                                         str(vertex.id))
+                    self._y[vertex],
+                    self._width[vertex],
+                    self._height[vertex],
+                    self._header_height,
+                    str(vertex.id))
+
+        self._compound_layer_tree.finished = True
+        self._inc_tree.finished = True
 
     def _layout_edges(self):
         for src, dst, edge in self._adj_graph.edges:
             self._drawer.draw_edge(self._x[src], self._y[src], self._width[src], self._height[src],
-                                   self._x[dst], self._y[dst], self._width[dst], self._height[dst],
-                                   self._get_type(dst))
+                self._x[dst], self._y[dst], self._width[dst], self._height[dst],
+                self._get_type(dst))
 
     #we assume that inclusion graph is a rooted tree
     def draw(self, graph):
@@ -715,13 +823,13 @@ class CompoundGraphDrawer(object):
         self._set_fake_compound_layer_nodes()
         self._set_y_coordinates(self._compound_layer_tree.root, min_x)
         self._set_coordinates(self._inc_tree.root, min_y)
-        self._x[self._inc_tree.root.origin] = self._half(self._width[self._inc_tree.root.origin]) + min_x
-        self._y[self._inc_tree.root.origin] = self._half(self._height[self._compound_layer_tree.root]) + min_y
+        self._x[self._inc_tree.root.origin] = self._half(
+            self._width[self._inc_tree.root.origin]) + min_x
+        self._y[self._inc_tree.root.origin] = self._half(
+            self._height[self._compound_layer_tree.root]) + min_y
         self._height[self._inc_tree.root.origin] = self._height[self._compound_layer_tree.root]
         self._drawer.init()
         self._layout_vertices()
         self._layout_edges()
         self._drawer.draw()
 
-    def set_drawer_options(self, **kwargs):
-        pass
